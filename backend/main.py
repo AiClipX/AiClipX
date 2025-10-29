@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+import os
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -13,6 +15,18 @@ app.add_middleware(
     allow_methods=["*"], allow_headers=["*"],
 )
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "ok",
+        "database_url": os.getenv("SUPABASE_URL"),
+        "env_vars": {
+            "SUPABASE_URL": bool(os.getenv("SUPABASE_URL")),
+            "SUPABASE_ANON_KEY": bool(os.getenv("SUPABASE_ANON_KEY")),
+            "SUPABASE_SERVICE_KEY": bool(os.getenv("SUPABASE_SERVICE_KEY"))
+        }
+    }
 # 静态目录：用于暴露生成的视频文件
 Path("outputs").mkdir(exist_ok=True)
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
