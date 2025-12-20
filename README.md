@@ -27,6 +27,8 @@ npm run dev
 
 ### How to Use
 
+Once the server is running, you can access the Video List page directly at: http://localhost:3000/dashboard/test-video-list
+
 Filter
 
 Use the StatusFilter tab to filter videos by Draft, Processing, Completed

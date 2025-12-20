@@ -8,54 +8,27 @@ export function useVideoList() {
   const [status, setStatus] = useState<VideoStatus | "All">("All");
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
 
-  // debounce search
   useEffect(() => {
-    const handler = setTimeout(() => setDebouncedSearch(search), 400);
-    return () => clearTimeout(handler);
-  }, [search]);
-
-  useEffect(() => {
-    setPage(1);
     setLoading(true);
-    fetchVideos({
-      status: status === "All" ? undefined : status,
-      sort,
-      search: debouncedSearch,
-      page: 1,
-      pageSize: 12,
-    }).then((res) => {
-      setVideos(res.data);
-      setTotal(res.total);
-      setLoading(false);
-    });
-  }, [status, sort, debouncedSearch]);
+    const handler = setTimeout(() => {
+      fetchVideos({ status, sort, search, page, pageSize: PAGE_SIZE }).then(
+        (res) => {
+          setVideos(res.data);
+          setTotal(res.total);
+          setLoading(false);
+        }
+      );
+    }, 300); // debounce search
 
-  useEffect(() => {
-    fetchVideos({
-      status: status === "All" ? undefined : status,
-      sort,
-      search: debouncedSearch,
-      page,
-      pageSize: 12,
-    }).then((res) => setVideos(res.data));
-  }, [page]);
+    return () => clearTimeout(handler);
+  }, [status, sort, search, page]);
 
-  // 🔹 Add handlers for edit/delete
-  const removeVideo = (id: string) => {
-    setVideos((prev) => prev.filter((v) => v.id !== id));
-  };
-
-  const updateVideo = (updatedVideo: Video) => {
-    setVideos((prev) =>
-      prev.map((v) => (v.id === updatedVideo.id ? updatedVideo : v))
-    );
-  };
+  useEffect(() => setPage(1), [status, sort, search]);
 
   return {
     status,
@@ -69,8 +42,6 @@ export function useVideoList() {
     page,
     setPage,
     total,
-    pageSize: 12,
-    removeVideo, // 🔹 export remove
-    updateVideo, // 🔹 export update
+    pageSize: PAGE_SIZE,
   };
 }
