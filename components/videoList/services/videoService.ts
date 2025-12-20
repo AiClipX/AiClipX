@@ -1,44 +1,35 @@
 import { VIDEO_MOCK } from "../mocks/videoMock";
-import { Video, VideoStatus } from "../types/videoTypes";
+import { VideoStatus } from "../types/videoTypes";
 
-interface FetchParams {
-  status?: VideoStatus;
-  page: number;
-  pageSize: number;
-  sort?: "newest" | "oldest";
-}
-
-export function fetchVideos({
+export async function fetchVideos({
   status,
+  sort,
   page,
   pageSize,
-  sort = "newest",
-}: FetchParams): Promise<{
-  data: Video[];
-  total: number;
-}> {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      let filtered = VIDEO_MOCK;
+  search,
+}: {
+  status?: VideoStatus;
+  sort: "newest" | "oldest";
+  page: number;
+  pageSize: number;
+  search?: string;
+}) {
+  await new Promise((r) => setTimeout(r, 200));
+  let data = [...VIDEO_MOCK];
 
-      if (status) {
-        filtered = filtered.filter((v) => v.status === status);
-      }
+  if (status) data = data.filter((v) => v.status === status);
+  if (search)
+    data = data.filter((v) =>
+      v.title.toLowerCase().includes(search.toLowerCase())
+    );
 
-      filtered = [...filtered].sort((a, b) => {
-        const timeA = new Date(a.createdAt).getTime();
-        const timeB = new Date(b.createdAt).getTime();
+  data.sort((a, b) =>
+    sort === "newest"
+      ? +new Date(b.createdAt) - +new Date(a.createdAt)
+      : +new Date(a.createdAt) - +new Date(b.createdAt)
+  );
 
-        return sort === "newest" ? timeB - timeA : timeA - timeB;
-      });
-
-      const start = (page - 1) * pageSize;
-      const end = start + pageSize;
-
-      resolve({
-        data: filtered.slice(start, end),
-        total: filtered.length,
-      });
-    }, 500);
-  });
+  const total = data.length;
+  const start = (page - 1) * pageSize;
+  return { data: data.slice(start, start + pageSize), total };
 }
