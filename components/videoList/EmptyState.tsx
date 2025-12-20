@@ -1,7 +1,6 @@
 export function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
-      {/* Icon hoặc hình ảnh */}
       <svg
         xmlns="http://www.w3.org/2000/svg"
         className="h-16 w-16 mb-4 text-neutral-500"

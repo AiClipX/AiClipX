@@ -7,30 +7,28 @@ const PAGE_SIZE = 12;
 export function useVideoList() {
   const [status, setStatus] = useState<VideoStatus | "All">("All");
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
-  const [search, setSearch] = useState(""); // 🔹 search query
+  const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
 
-  // 🔹 debounce search
+  // debounce search
   useEffect(() => {
     const handler = setTimeout(() => setDebouncedSearch(search), 400);
     return () => clearTimeout(handler);
   }, [search]);
 
-  // fetch videos khi filter / sort / debounced search
   useEffect(() => {
     setPage(1);
     setLoading(true);
-
     fetchVideos({
       status: status === "All" ? undefined : status,
       sort,
-      search: debouncedSearch, // 🔹 truyền search
+      search: debouncedSearch,
       page: 1,
-      pageSize: PAGE_SIZE,
+      pageSize: 12,
     }).then((res) => {
       setVideos(res.data);
       setTotal(res.total);
@@ -38,16 +36,26 @@ export function useVideoList() {
     });
   }, [status, sort, debouncedSearch]);
 
-  // paginate → không loading
   useEffect(() => {
     fetchVideos({
       status: status === "All" ? undefined : status,
       sort,
-      search: debouncedSearch, // 🔹 truyền search
+      search: debouncedSearch,
       page,
-      pageSize: PAGE_SIZE,
+      pageSize: 12,
     }).then((res) => setVideos(res.data));
   }, [page]);
+
+  // 🔹 Add handlers for edit/delete
+  const removeVideo = (id: string) => {
+    setVideos((prev) => prev.filter((v) => v.id !== id));
+  };
+
+  const updateVideo = (updatedVideo: Video) => {
+    setVideos((prev) =>
+      prev.map((v) => (v.id === updatedVideo.id ? updatedVideo : v))
+    );
+  };
 
   return {
     status,
@@ -55,12 +63,14 @@ export function useVideoList() {
     sort,
     setSort,
     search,
-    setSearch, // 🔹 expose setSearch cho input
+    setSearch,
     videos,
     loading,
     page,
     setPage,
     total,
-    pageSize: PAGE_SIZE,
+    pageSize: 12,
+    removeVideo, // 🔹 export remove
+    updateVideo, // 🔹 export update
   };
 }
