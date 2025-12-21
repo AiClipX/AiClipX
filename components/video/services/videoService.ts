@@ -39,3 +39,10 @@ export const fetchVideos = async ({
     setTimeout(() => resolve({ data, total }), 300)
   );
 };
+
+export const getVideoById = async (id: string): Promise<Video | null> => {
+  const found = mockVideos.find((v) => v.id === id);
+  return new Promise((resolve) =>
+    setTimeout(() => resolve(found || null), 300)
+  );
+};

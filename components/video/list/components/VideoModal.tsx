@@ -1,4 +1,4 @@
-import { Video } from "./types/videoTypes";
+import { Video } from "../../types/videoTypes";
 import React from "react";
 interface VideoModalProps {
   video: Video;

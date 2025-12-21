@@ -4,7 +4,10 @@ export interface Video {
   id: string;
   title: string;
   status: VideoStatus;
+  createdAt: string;
   thumbnail: string;
   url: string;
-  createdAt: string;
+  duration?: string;
+  ratio?: string;
+  language?: string;
 }

@@ -1,4 +1,4 @@
-import { VideoStatus } from "./types/videoTypes";
+import { VideoStatus } from "../../types/videoTypes";
 
 const STATUSES: (VideoStatus | "All")[] = [
   "All",
@@ -14,14 +14,20 @@ interface Props {
 
 export function StatusFilter({ value, onChange }: Props) {
   return (
-    <div className="flex gap-2 mb-6">
+    <div className="flex gap-2 overflow-x-auto mb-4">
       {STATUSES.map((s) => (
         <button
           key={s}
           onClick={() => onChange(s)}
-          className={`px-3 py-1 text-sm rounded ${
-            value === s ? "bg-blue-600" : "bg-neutral-800 hover:bg-neutral-700"
-          }`}
+          className={`
+            px-3 py-1 text-sm rounded transition-colors
+            ${
+              value === s
+                ? "bg-blue-600 text-white"
+                : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+            }
+            cursor-pointer
+          `}
         >
           {s}
         </button>
