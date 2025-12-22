@@ -13,7 +13,7 @@ export function VideoListContainer() {
     useVideoListContext();
   const { videos, loading, total, pageSize } = useVideoList();
 
-  //  load status saved in sessionStorage
+  // load saved state
   useEffect(() => {
     const saved = sessionStorage.getItem("videoListState");
     if (saved) {

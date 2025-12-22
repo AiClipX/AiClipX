@@ -2,9 +2,10 @@ import { VideoStatus } from "../../types/videoTypes";
 
 const STATUSES: (VideoStatus | "All")[] = [
   "All",
-  "Draft",
-  "Processing",
   "Completed",
+  "Processing",
+  "Draft",
+  "Failed",
 ];
 
 interface Props {

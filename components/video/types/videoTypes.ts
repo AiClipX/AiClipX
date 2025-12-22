@@ -1,4 +1,4 @@
-export type VideoStatus = "Draft" | "Processing" | "Completed";
+export type VideoStatus = "Draft" | "Processing" | "Completed" | "Failed";
 
 export interface Video {
   id: string;
@@ -6,8 +6,10 @@ export interface Video {
   status: VideoStatus;
   createdAt: string;
   thumbnail: string;
-  url: string;
+  url: string | null;
   duration?: string;
   ratio?: string;
   language?: string;
+  prompt?: string;
+  errorMessage?: string | null;
 }
