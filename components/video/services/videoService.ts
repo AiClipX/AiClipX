@@ -1,10 +1,8 @@
-// components/video/services/videoService.ts
 import axios from "axios";
 import { Video, VideoStatus } from "../types/videoTypes";
 import backendMock from "../mocks/videoBackendMock.json";
 
-const API_URL = "/api/videos"; // sau này đổi thành BE thật
-
+const API_URL = "/api/videos";
 function parseStatus(status: string): VideoStatus {
   switch (status.toLowerCase()) {
     case "draft":
@@ -36,7 +34,6 @@ function parseVideo(raw: any): Video {
   };
 }
 
-// hiện tại dùng mock JSON, sau này chỉ đổi API_URL
 export const fetchVideos = async (params: {
   status?: "All" | VideoStatus;
   sort?: "newest" | "oldest";
@@ -45,7 +42,6 @@ export const fetchVideos = async (params: {
   pageSize?: number;
 }): Promise<{ data: Video[]; total: number }> => {
   if (process.env.NODE_ENV === "development") {
-    // dùng mock
     let filtered = backendMock.items.map(parseVideo);
     if (params.status && params.status !== "All")
       filtered = filtered.filter((v) => v.status === params.status);

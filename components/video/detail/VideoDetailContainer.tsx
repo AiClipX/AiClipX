@@ -1,4 +1,3 @@
-// components/video/detail/VideoDetailContainer.tsx
 import { VideoPlayer } from "./components/VideoPlayer";
 import { VideoMeta } from "./components/VideoMeta";
 import { VideoActions } from "./components/VideoActions";

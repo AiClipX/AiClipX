@@ -1,4 +1,3 @@
-// components/video/detail/components/BackButton.tsx
 import { useRouter } from "next/router";
 
 export function BackButton() {

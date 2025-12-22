@@ -10,6 +10,6 @@ export interface Video {
   duration?: string;
   ratio?: string;
   language?: string;
-  prompt?: string;
+  prompt: string;
   errorMessage?: string | null;
 }

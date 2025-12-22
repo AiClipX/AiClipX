@@ -10,7 +10,7 @@ export function useVideoList() {
       queryKey: ["videos", { status, sort, search, page }],
       queryFn: () => fetchVideos({ status, sort, search, page, pageSize: 12 }),
       refetchInterval: 5000,
-      staleTime: 5000, // thay keepPreviousData
+      staleTime: 5000, //  keepPreviousData
     }
   );
 

@@ -1,4 +1,3 @@
-// components/video/mocks/videoMock.ts
 import { Video } from "../types/videoTypes";
 
 export const mockVideos: Video[] = Array.from({ length: 100 }).map((_, i) => ({

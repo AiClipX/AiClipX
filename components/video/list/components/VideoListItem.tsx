@@ -1,4 +1,3 @@
-// components/video/list/components/VideoListItem.tsx
 import { Video } from "../../types/videoTypes";
 import { useRouter } from "next/router";
 import { useVideoListContext } from "../hooks/VideoListContext";
@@ -14,7 +13,7 @@ export function VideoListItem({ video }: Props) {
   const [hovered, setHovered] = useState(false);
 
   const handleClick = () => {
-    if (video.status === "Failed") return; // không vào detail nếu failed
+    if (video.status === "Failed") return;
 
     // Save current list state to sessionStorage
     const state = { page, status, sort, search };
