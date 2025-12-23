@@ -34,7 +34,7 @@ export function VideoListContainer() {
             setPage(1);
           }}
         />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mb-4">
           <span>Search:</span>
           <input
             type="text"

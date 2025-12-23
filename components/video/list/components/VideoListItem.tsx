@@ -1,7 +1,7 @@
 import { Video } from "../../types/videoTypes";
 import { useRouter } from "next/router";
 import { useVideoListContext } from "../hooks/VideoListContext";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface Props {
   video: Video;
@@ -11,23 +11,6 @@ export function VideoListItem({ video }: Props) {
   const router = useRouter();
   const { page, status, sort, search } = useVideoListContext();
   const [hovered, setHovered] = useState(false);
-
-  // const handleClick = () => {
-  //   if (video.status === "Failed") return; // không cho click
-  //   if (video.status === "Processing") {
-  //     alert(
-  //       "Video is still processing. It will be available to play when completed."
-  //     );
-  //     return;
-  //   }
-
-  //   sessionStorage.setItem(
-  //     "videoListState",
-  //     JSON.stringify({ page, status, sort, search })
-  //   );
-
-  //   router.push(`/dashboard/videos/${video.id}`);
-  // };
 
   const handleClick = () => {
     if (video.status === "Failed") return;

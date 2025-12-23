@@ -2,12 +2,23 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchVideos } from "../../services/videoService";
 import { useVideoListContext } from "./VideoListContext";
 import { Video } from "../../types/videoTypes";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 
 const PAGE_SIZE = 12;
+const DEBOUNCE_DELAY = 500; // 500ms
 
 export function useVideoList() {
   const { status, sort, search, page } = useVideoListContext();
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+
+  // debounce search
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, DEBOUNCE_DELAY);
+
+    return () => clearTimeout(handler);
+  }, [search]);
 
   const { data, isLoading } = useQuery<{ data: Video[] }, Error>({
     queryKey: ["videos"],
@@ -16,9 +27,7 @@ export function useVideoList() {
     refetchInterval: 5000,
   });
 
-  /**
-   * Filter + sort on FE
-   */
+  // Filter + sort
   const filteredVideos = useMemo(() => {
     if (!data) return [];
 
@@ -28,9 +37,9 @@ export function useVideoList() {
       result = result.filter((v) => v.status === status);
     }
 
-    if (search) {
+    if (debouncedSearch) {
       result = result.filter((v) =>
-        v.title.toLowerCase().includes(search.toLowerCase())
+        v.title.toLowerCase().includes(debouncedSearch.toLowerCase())
       );
     }
 
@@ -41,11 +50,9 @@ export function useVideoList() {
     );
 
     return result;
-  }, [data, status, sort, search]);
+  }, [data, status, sort, debouncedSearch]);
 
-  /**
-   * Client-side pagination
-   */
+  // Pagination
   const paginatedVideos = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
     return filteredVideos.slice(start, start + PAGE_SIZE);
