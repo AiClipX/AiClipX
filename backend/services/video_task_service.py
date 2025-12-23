@@ -35,7 +35,15 @@ class VideoTaskService:
                 error_message = None
 
                 if status == VideoTaskStatus.completed:
-                    video_url = f"https://storage.example.com/videos/{task_id}.mp4"
+                    # Real playable video URLs for demo
+                    demo_videos = [
+                        "https://www.w3schools.com/html/mov_bbb.mp4",
+                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+                    ]
+                    video_url = demo_videos[task_num % len(demo_videos)]
                 elif status == VideoTaskStatus.failed:
                     error_message = f"Error: Video generation failed - timeout after 300s"
 
