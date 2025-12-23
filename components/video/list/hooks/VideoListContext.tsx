@@ -29,11 +29,15 @@ export const VideoListProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     const saved = sessionStorage.getItem("videoListState");
     if (saved) {
-      const state = JSON.parse(saved);
-      setStatus(state.status || "All");
-      setSort(state.sort || "newest");
-      setSearch(state.search || "");
-      setPage(state.page || 1);
+      try {
+        const state = JSON.parse(saved);
+        if (state.status) setStatus(state.status);
+        if (state.sort) setSort(state.sort);
+        if (state.search) setSearch(state.search);
+        if (state.page) setPage(state.page);
+      } catch (err) {
+        console.error("Failed to parse videoListState", err);
+      }
     }
     setInitialized(true);
   }, []);
@@ -46,10 +50,6 @@ export const VideoListProvider: React.FC<{ children: React.ReactNode }> = ({
       );
     }
   }, [status, sort, search, page, initialized]);
-
-  useEffect(() => {
-    setPage(1); // reset page when filters change
-  }, [status, sort, search]);
 
   return (
     <VideoListContext.Provider

@@ -21,11 +21,11 @@ export function VideoListItem({ video }: Props) {
       return;
     }
 
-    // Completed
     sessionStorage.setItem(
       "videoListState",
       JSON.stringify({ page, status, sort, search })
     );
+
     router.push(`/dashboard/videos/${video.id}`);
   };
 

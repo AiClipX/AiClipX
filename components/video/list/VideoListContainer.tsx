@@ -13,14 +13,12 @@ export function VideoListContainer() {
     setStatus,
     sort,
     setSort,
-    search,
     setSearch,
     page,
     setPage,
     initialized,
   } = useVideoListContext();
   const { videos, loading, total, pageSize } = useVideoList();
-
   if (!initialized) return null; // load sessionStorage
 
   return (
