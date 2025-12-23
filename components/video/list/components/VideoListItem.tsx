@@ -30,10 +30,8 @@ export function VideoListItem({ video }: Props) {
   // };
 
   const handleClick = () => {
-    // Nếu video lỗi
     if (video.status === "Failed") return;
 
-    // Nếu video đang xử lý
     if (video.status === "Processing") {
       alert(
         "Video is still processing. It will be available to play when completed."
@@ -41,13 +39,10 @@ export function VideoListItem({ video }: Props) {
       return;
     }
 
-    // Nếu video Completed nhưng URL không tồn tại
     if (video.status === "Completed" && !video.url) {
       alert(`Cannot play video "${video.title}" - URL not found`);
       return;
     }
-
-    // Completed video có URL
     sessionStorage.setItem(
       "videoListState",
       JSON.stringify({ page, status, sort, search })
