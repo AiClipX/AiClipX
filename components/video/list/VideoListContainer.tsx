@@ -13,6 +13,7 @@ export function VideoListContainer() {
     setStatus,
     sort,
     setSort,
+    search,
     setSearch,
     page,
     setPage,
@@ -26,9 +27,32 @@ export function VideoListContainer() {
       <h1 className="text-xl font-semibold mb-4">Video List</h1>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
-        <StatusFilter value={status} onChange={setStatus} />
-
-        <SortByDate value={sort} onChange={setSort} />
+        <StatusFilter
+          value={status}
+          onChange={(v) => {
+            setStatus(v);
+            setPage(1);
+          }}
+        />
+        <div className="flex items-center gap-2">
+          <span>Search:</span>
+          <input
+            type="text"
+            className="px-2 py-1 rounded text-black"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        <SortByDate
+          value={sort}
+          onChange={(v) => {
+            setSort(v);
+            setPage(1);
+          }}
+        />
       </div>
 
       {loading && <LoadingState />}
