@@ -9,22 +9,32 @@ interface Props {
 
 export function VideoListItem({ video }: Props) {
   const router = useRouter();
-  const { page, sort, status, search } = useVideoListContext();
+  const { page, status, sort, search } = useVideoListContext();
   const [hovered, setHovered] = useState(false);
 
   const handleClick = () => {
-    if (video.status === "Failed") return;
+    if (video.status === "Failed") return; // không cho click
+    if (video.status === "Processing") {
+      alert(
+        "Video is still processing. It will be available to play when completed."
+      );
+      return;
+    }
 
-    // Save current list state to sessionStorage
-    const state = { page, status, sort, search };
-    sessionStorage.setItem("videoListState", JSON.stringify(state));
+    // Completed
+    sessionStorage.setItem(
+      "videoListState",
+      JSON.stringify({ page, status, sort, search })
+    );
 
     router.push(`/dashboard/videos/${video.id}`);
   };
 
   return (
     <div
-      className="bg-neutral-900 rounded-lg overflow-hidden group cursor-pointer transition hover:scale-[1.03]"
+      className={`bg-neutral-900 rounded-lg overflow-hidden group cursor-pointer transition hover:scale-[1.03] ${
+        video.status === "Failed" ? "opacity-50 cursor-not-allowed" : ""
+      }`}
       onClick={handleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -33,17 +43,6 @@ export function VideoListItem({ video }: Props) {
         {video.status === "Failed" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-70 text-red-500 text-sm p-2 text-center">
             <span>{video.errorMessage || "Video generation failed"}</span>
-            <div className="flex gap-2 mt-2">
-              <button className="underline text-blue-400 cursor-pointer">
-                Retry
-              </button>
-              <button
-                className="underline text-blue-400 cursor-pointer"
-                onClick={() => router.push(`/dashboard/videos/${video.id}`)}
-              >
-                View Details
-              </button>
-            </div>
           </div>
         )}
 
@@ -56,9 +55,9 @@ export function VideoListItem({ video }: Props) {
                 className="w-full h-full object-cover"
               />
             )}
-            {hovered && video.status === "Completed" && (
+            {hovered && video.status === "Completed" && video.url && (
               <video
-                src={video.url || ""}
+                src={video.url}
                 muted
                 autoPlay
                 loop
@@ -66,16 +65,9 @@ export function VideoListItem({ video }: Props) {
                 className="w-full h-full object-cover"
               />
             )}
-
-            {(video.status === "Draft" || video.status === "Processing") && (
-              <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center text-white text-lg font-semibold">
-                {video.status}
-              </div>
-            )}
           </>
         )}
       </div>
-
       <div className="p-2">
         <div className="block font-medium text-sm truncate">{video.title}</div>
         <div className="flex justify-between mt-1 text-xs">

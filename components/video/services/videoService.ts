@@ -1,11 +1,15 @@
 import axios from "axios";
 import { Video, VideoStatus } from "../types/videoTypes";
-import backendMock from "../mocks/videoBackendMock.json";
 
-const API_URL = "/api/videos";
+const API_URL = "https://aiclipx-iam2.onrender.com/api/video-tasks";
+
+/* =====================
+   Helpers
+===================== */
+
 function parseStatus(status: string): VideoStatus {
   switch (status.toLowerCase()) {
-    case "draft":
+    case "pending":
       return "Draft";
     case "processing":
       return "Processing";
@@ -14,66 +18,66 @@ function parseStatus(status: string): VideoStatus {
     case "failed":
       return "Failed";
     default:
-      throw new Error("Unknown status: " + status);
+      return "Draft";
   }
+}
+
+function getPlaceholderThumbnail(status: VideoStatus): string {
+  switch (status) {
+    case "Completed":
+      return "https://picsum.photos/400/225?random=3";
+    case "Processing":
+      return "https://picsum.photos/400/225?random=2";
+    case "Failed":
+      return "https://picsum.photos/400/225?random=4";
+    default:
+      return "https://picsum.photos/400/225?random=1";
+  }
+}
+
+// mock video url for completed videos because the API does not provide real video URLs
+function resolveVideoUrl(status: VideoStatus): string | null {
+  if (status === "Completed") {
+    return "/mock/sample.mp4";
+  }
+  return null;
 }
 
 function parseVideo(raw: any): Video {
+  const status = parseStatus(raw.status);
+
   return {
     id: raw.id,
     title: raw.title,
-    thumbnail: raw.thumbnailUrl,
-    url: raw.videoUrl,
-    status: parseStatus(raw.status),
+    status,
     createdAt: raw.createdAt,
-    prompt: raw.prompt || "",
+    thumbnail: getPlaceholderThumbnail(status),
+    url: resolveVideoUrl(status),
+    duration: undefined,
+    ratio: undefined,
+    language: undefined,
+    prompt: "",
     errorMessage: raw.errorMessage || null,
-    duration: raw.duration,
-    ratio: raw.ratio,
-    language: raw.language,
   };
 }
 
-export const fetchVideos = async (params: {
-  status?: "All" | VideoStatus;
-  sort?: "newest" | "oldest";
-  search?: string;
-  page?: number;
-  pageSize?: number;
-}): Promise<{ data: Video[]; total: number }> => {
-  if (process.env.NODE_ENV === "development") {
-    let filtered = backendMock.items.map(parseVideo);
-    if (params.status && params.status !== "All")
-      filtered = filtered.filter((v) => v.status === params.status);
-    if (params.search)
-      filtered = filtered.filter((v) =>
-        v.title.toLowerCase().includes(params.search!.toLowerCase())
-      );
-    filtered.sort((a, b) =>
-      params.sort === "oldest"
-        ? new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    const total = filtered.length;
-    const start = ((params.page || 1) - 1) * (params.pageSize || 12);
-    const data = filtered.slice(start, start + (params.pageSize || 12));
-    return new Promise((resolve) =>
-      setTimeout(() => resolve({ data, total }), 200)
-    );
-  }
+/* =====================
+   API
+===================== */
 
-  const res = await axios.get(API_URL, { params });
+export const fetchVideos = async (): Promise<{ data: Video[] }> => {
+  const res = await axios.get(API_URL);
+
   return {
-    data: res.data.items.map(parseVideo),
-    total: res.data.pagination.total,
+    data: res.data.data.map(parseVideo),
   };
 };
 
 export const getVideoById = async (id: string): Promise<Video | null> => {
-  if (process.env.NODE_ENV === "development") {
-    const raw = backendMock.items.find((v: any) => v.id === id);
-    return raw ? parseVideo(raw) : null;
+  try {
+    const res = await axios.get(`${API_URL}/${id}`);
+    return parseVideo(res.data);
+  } catch {
+    return null;
   }
-  const res = await axios.get(`${API_URL}/${id}`);
-  return parseVideo(res.data);
 };
