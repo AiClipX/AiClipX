@@ -6,8 +6,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pathlib import Path
 from generate_video import generate_video
+from routers import video_tasks
 
 app = FastAPI(title="AiClipX v0.3")
+
+# Include video tasks router
+app.include_router(video_tasks.router, prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,
