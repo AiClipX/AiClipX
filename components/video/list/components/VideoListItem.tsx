@@ -26,14 +26,31 @@ export function VideoListItem({ video }: Props) {
       "videoListState",
       JSON.stringify({ page, status, sort, search })
     );
-
     router.push(`/dashboard/videos/${video.id}`);
+  };
+
+  const handleViewDetails = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (video.status === "Failed") {
+      alert(
+        ` Video "${video.title}" has failed with: ${
+          video.errorMessage || "Unknown error"
+        }.`
+      );
+      return;
+    }
+    router.push(`/dashboard/videos/${video.id}`);
+  };
+
+  const handleRetry = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    alert(`Retry logic for video "${video.title}" not implemented yet.`);
   };
 
   return (
     <div
       className={`bg-neutral-900 rounded-lg overflow-hidden group cursor-pointer transition hover:scale-[1.03] ${
-        video.status === "Failed" ? "opacity-50 cursor-not-allowed" : ""
+        video.status === "Failed" ? "opacity-80 cursor-not-allowed" : ""
       }`}
       onClick={handleClick}
       onMouseEnter={() => setHovered(true)}
@@ -43,6 +60,20 @@ export function VideoListItem({ video }: Props) {
         {video.status === "Failed" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-70 text-red-500 text-sm p-2 text-center">
             <span>{video.errorMessage || "Video generation failed"}</span>
+            <div className="flex gap-2 mt-2">
+              <button
+                className="underline text-blue-400 cursor-pointer"
+                onClick={handleRetry}
+              >
+                Retry
+              </button>
+              <button
+                className="underline text-blue-400 cursor-pointer"
+                onClick={handleViewDetails}
+              >
+                View Details
+              </button>
+            </div>
           </div>
         )}
 
@@ -65,9 +96,15 @@ export function VideoListItem({ video }: Props) {
                 className="w-full h-full object-cover"
               />
             )}
+            {video.status === "Processing" && !hovered && (
+              <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center text-white text-lg font-semibold">
+                Processing
+              </div>
+            )}
           </>
         )}
       </div>
+
       <div className="p-2">
         <div className="block font-medium text-sm truncate">{video.title}</div>
         <div className="flex justify-between mt-1 text-xs">
