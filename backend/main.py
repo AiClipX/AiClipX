@@ -105,14 +105,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.get("/health")
 def health_check():
-    """Health check endpoint"""
+    """Health check endpoint - returns server status, time, and version."""
     return {
-        "status": "ok",
-        "env_vars": {
-            "SUPABASE_URL": bool(os.getenv("SUPABASE_URL")),
-            "SUPABASE_ANON_KEY": bool(os.getenv("SUPABASE_ANON_KEY")),
-            "SUPABASE_SERVICE_KEY": bool(os.getenv("SUPABASE_SERVICE_KEY"))
-        }
+        "ok": True,
+        "time": datetime.now(timezone.utc).isoformat(),
+        "version": VERSION,
     }
 # 静态目录：用于暴露生成的视频文件
 Path("outputs").mkdir(exist_ok=True)
