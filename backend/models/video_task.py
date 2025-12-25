@@ -27,3 +27,16 @@ class VideoTask(BaseModel):
 class VideoTaskListResponse(BaseModel):
     data: List[VideoTask]
     nextCursor: Optional[str] = None
+
+
+class CreateVideoTaskRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+
+
+class CreateVideoTaskResponse(BaseModel):
+    id: str
+    status: VideoTaskStatus
+    createdAt: datetime = Field(..., alias="createdAt")
+
+    class Config:
+        populate_by_name = True

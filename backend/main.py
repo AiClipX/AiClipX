@@ -1,30 +1,113 @@
-from fastapi import FastAPI
+import logging
 import os
-from fastapi import FastAPI
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import FastAPI, HTTPException as FastAPIHTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from pathlib import Path
+from starlette.middleware.base import BaseHTTPMiddleware
+
 from generate_video import generate_video
 from routers import video_tasks
 
-app = FastAPI(title="AiClipX v0.3")
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
+VERSION = "0.4.0"
+
+app = FastAPI(title="AiClipX", version=VERSION)
+
+# Request ID middleware
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = f"req_{uuid4().hex[:8]}"
+        request.state.request_id = request_id
+        logger.info(f"[{request_id}] {request.method} {request.url.path}")
+
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request_id
+        logger.info(f"[{request_id}] Response: {response.status_code}")
+        return response
+
+
+# Add middlewares (order matters - first added = outermost)
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Include video tasks router
 app.include_router(video_tasks.router, prefix="/api")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
-)
+
+# Standard error response model
+class ErrorResponse(BaseModel):
+    code: str
+    message: str
+    requestId: str
+
+
+# Exception handlers for standard error format
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.error(f"[{request_id}] Unhandled error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": "INTERNAL_ERROR",
+            "message": "An unexpected error occurred",
+            "requestId": request_id,
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
+
+@app.exception_handler(FastAPIHTTPException)
+async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.warning(f"[{request_id}] HTTP {exc.status_code}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": f"HTTP_{exc.status_code}",
+            "message": str(exc.detail),
+            "requestId": request_id,
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.warning(f"[{request_id}] Validation error: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": "VALIDATION_ERROR",
+            "message": str(exc.errors()),
+            "requestId": request_id,
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
 
 @app.get("/health")
 def health_check():
     """Health check endpoint"""
     return {
         "status": "ok",
-        "database_url": os.getenv("SUPABASE_URL"),
         "env_vars": {
             "SUPABASE_URL": bool(os.getenv("SUPABASE_URL")),
             "SUPABASE_ANON_KEY": bool(os.getenv("SUPABASE_ANON_KEY")),
