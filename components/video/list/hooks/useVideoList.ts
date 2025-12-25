@@ -21,7 +21,7 @@ export function useVideoList() {
   }, [search]);
 
   const { data, isLoading } = useQuery<{ data: Video[] }, Error>({
-    queryKey: ["videos"],
+    queryKey: ["videos", "list"],
     queryFn: fetchVideos,
     staleTime: 5000,
     refetchInterval: 5000,

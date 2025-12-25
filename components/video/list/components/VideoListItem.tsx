@@ -91,6 +91,7 @@ export function VideoListItem({ video }: Props) {
                 className="w-full h-full object-cover"
               />
             )}
+
             {hovered && video.status === "Completed" && video.url && (
               <video
                 src={video.url}
@@ -101,11 +102,26 @@ export function VideoListItem({ video }: Props) {
                 className="w-full h-full object-cover"
               />
             )}
-            {video.status === "Processing" && !hovered && (
-              <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center text-white text-lg font-semibold">
-                Processing
-              </div>
-            )}
+
+            {(video.status === "Processing" || video.status === "Pending") &&
+              !hovered && (
+                <div
+                  className={`absolute inset-0 flex items-center justify-center text-lg font-semibold
+          ${
+            video.status === "Processing"
+              ? "text-yellow-400 bg-black bg-opacity-50"
+              : ""
+          }
+          ${
+            video.status === "Pending"
+              ? "text-gray-400 bg-black bg-opacity-40"
+              : ""
+          }
+        `}
+                >
+                  {video.status}
+                </div>
+              )}
           </>
         )}
       </div>
@@ -124,6 +140,8 @@ export function VideoListItem({ video }: Props) {
                 ? "text-yellow-400"
                 : video.status === "Completed"
                 ? "text-green-400"
+                : video.status === "Pending"
+                ? "text-gray-400"
                 : "text-red-500"
             }`}
           >

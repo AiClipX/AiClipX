@@ -6,7 +6,9 @@ import { LoadingState } from "./components/LoadingState";
 import { EmptyState } from "./components/EmptyState";
 import { useVideoListContext } from "./hooks/VideoListContext";
 import { useVideoList } from "./hooks/useVideoList";
-
+import { CreateVideoButton } from "./components/CreateVideoButton";
+import { useState } from "react";
+import { CreateVideoModal } from "./components/CreateVideoModal";
 export function VideoListContainer() {
   const {
     status,
@@ -20,11 +22,16 @@ export function VideoListContainer() {
     initialized,
   } = useVideoListContext();
   const { videos, loading, total, pageSize } = useVideoList();
+  const [openCreate, setOpenCreate] = useState(false);
+
   if (!initialized) return null; // load sessionStorage
 
   return (
     <section className="max-w-7xl mx-auto px-4 py-4 text-white">
-      <h1 className="text-xl font-semibold mb-4">Video List</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-xl font-semibold">Video List</h1>
+        <CreateVideoButton onClick={() => setOpenCreate(true)} />
+      </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
         <StatusFilter
@@ -68,6 +75,13 @@ export function VideoListContainer() {
           />
         </>
       )}
+      <CreateVideoModal
+        open={openCreate}
+        onClose={() => setOpenCreate(false)}
+        onCreated={() => {
+          setPage(1); // UX chuẩn: quay về trang đầu
+        }}
+      />
     </section>
   );
 }

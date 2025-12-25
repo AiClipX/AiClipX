@@ -10,7 +10,7 @@ const API_URL = "https://aiclipx-iam2.onrender.com/api/video-tasks";
 function parseStatus(status: string): VideoStatus {
   switch (status.toLowerCase()) {
     case "pending":
-      return "Draft";
+      return "Pending";
     case "processing":
       return "Processing";
     case "completed":
@@ -18,7 +18,7 @@ function parseStatus(status: string): VideoStatus {
     case "failed":
       return "Failed";
     default:
-      return "Draft";
+      return "Processing"; // an toàn hơn Draft
   }
 }
 
