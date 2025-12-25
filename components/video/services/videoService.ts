@@ -17,8 +17,10 @@ function parseStatus(status: string): VideoStatus {
       return "Completed";
     case "failed":
       return "Failed";
+    case "draft":
+      return "Draft";
     default:
-      return "Processing"; // an toàn hơn Draft
+      return "Processing";
   }
 }
 

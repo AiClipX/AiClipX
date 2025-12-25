@@ -9,6 +9,7 @@ import { useVideoList } from "./hooks/useVideoList";
 import { CreateVideoButton } from "./components/CreateVideoButton";
 import { useState } from "react";
 import { CreateVideoModal } from "./components/CreateVideoModal";
+
 export function VideoListContainer() {
   const {
     status,
@@ -21,18 +22,32 @@ export function VideoListContainer() {
     setPage,
     initialized,
   } = useVideoListContext();
-  const { videos, loading, total, pageSize } = useVideoList();
+  const { videos, loading, total, pageSize, refetch } = useVideoList(); // thêm refetch
   const [openCreate, setOpenCreate] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  if (!initialized) return null; // load sessionStorage
+  if (!initialized) return null;
+
+  const handleRefresh = async () => {
+    try {
+      await refetch();
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error("Failed to refresh videos", err);
+    }
+  };
 
   return (
     <section className="max-w-7xl mx-auto px-4 py-4 text-white">
-      <div className="flex justify-between items-center mb-4">
+      {/* Header + Create Button + Refresh */}
+      <div className="flex justify-between items-center mb-4 gap-4">
         <h1 className="text-xl font-semibold">Video List</h1>
-        <CreateVideoButton onClick={() => setOpenCreate(true)} />
+        <div className="flex items-center gap-2">
+          <CreateVideoButton onClick={() => setOpenCreate(true)} />
+        </div>
       </div>
 
+      {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
         <StatusFilter
           value={status}
@@ -52,6 +67,17 @@ export function VideoListContainer() {
               setPage(1);
             }}
           />
+          <button
+            onClick={handleRefresh}
+            className="px-3 py-1 bg-blue-600 rounded text-white text-sm hover:bg-blue-500 transition"
+          >
+            Refresh
+          </button>
+          {lastUpdated && (
+            <span className="text-sm text-neutral-400">
+              Last updated: {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
         </div>
         <SortByDate
           value={sort}
@@ -62,6 +88,7 @@ export function VideoListContainer() {
         />
       </div>
 
+      {/* Video List */}
       {loading && <LoadingState />}
       {!loading && videos.length === 0 && <EmptyState />}
       {!loading && videos.length > 0 && (
@@ -75,11 +102,14 @@ export function VideoListContainer() {
           />
         </>
       )}
+
+      {/* Create Video Modal */}
       <CreateVideoModal
         open={openCreate}
         onClose={() => setOpenCreate(false)}
         onCreated={() => {
-          setPage(1); // UX chuẩn: quay về trang đầu
+          setPage(1);
+          handleRefresh();
         }}
       />
     </section>

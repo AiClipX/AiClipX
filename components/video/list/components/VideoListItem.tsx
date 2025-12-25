@@ -15,9 +15,9 @@ export function VideoListItem({ video }: Props) {
   const handleClick = () => {
     if (video.status === "Failed") return;
 
-    if (video.status === "Processing") {
+    if (video.status === "Processing" || video.status === "Pending") {
       alert(
-        "Video is still processing. It will be available to play when completed."
+        `Video is still ${video.status}. It will be available to play when completed.`
       );
       return;
     }

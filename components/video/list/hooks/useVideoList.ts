@@ -6,7 +6,6 @@ import { useMemo, useState, useEffect } from "react";
 
 const PAGE_SIZE = 12;
 const DEBOUNCE_DELAY = 500; // 500ms
-
 export function useVideoList() {
   const { status, sort, search, page } = useVideoListContext();
   const [debouncedSearch, setDebouncedSearch] = useState(search);
@@ -15,23 +14,23 @@ export function useVideoList() {
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(search);
-    }, DEBOUNCE_DELAY);
+    }, 500);
 
     return () => clearTimeout(handler);
   }, [search]);
 
-  const { data, isLoading } = useQuery<{ data: Video[] }, Error>({
+  const query = useQuery<{ data: Video[] }, Error>({
     queryKey: ["videos", "list"],
     queryFn: fetchVideos,
     staleTime: 5000,
-    refetchInterval: 5000,
+    refetchInterval: 5000, // polling mỗi 5 giây
   });
 
   // Filter + sort
   const filteredVideos = useMemo(() => {
-    if (!data) return [];
+    if (!query.data) return [];
 
-    let result = [...data.data];
+    let result = [...query.data.data];
 
     if (status !== "All") {
       result = result.filter((v) => v.status === status);
@@ -50,18 +49,19 @@ export function useVideoList() {
     );
 
     return result;
-  }, [data, status, sort, debouncedSearch]);
+  }, [query.data, status, sort, debouncedSearch]);
 
   // Pagination
   const paginatedVideos = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filteredVideos.slice(start, start + PAGE_SIZE);
+    const start = (page - 1) * 12;
+    return filteredVideos.slice(start, start + 12);
   }, [filteredVideos, page]);
 
   return {
     videos: paginatedVideos,
     total: filteredVideos.length,
-    pageSize: PAGE_SIZE,
-    loading: isLoading,
+    pageSize: 12,
+    loading: query.isLoading,
+    refetch: query.refetch, // thêm dòng này
   };
 }
