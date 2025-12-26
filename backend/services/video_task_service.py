@@ -1,79 +1,39 @@
+"""
+Video Task Service - Database-backed persistence layer.
+All operations read/write from PostgreSQL database.
+"""
+import asyncio
 import logging
 import random
-import time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from uuid import uuid4
 
+from database import database
+from models.video_task import VideoTask, VideoTaskStatus
+
 logger = logging.getLogger(__name__)
 
-from models.video_task import VideoTask, VideoTaskStatus
+# Demo video URLs for completed tasks
+DEMO_VIDEOS = [
+    "https://www.w3schools.com/html/mov_bbb.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+]
 
 
 class VideoTaskService:
-    def __init__(self):
-        self._tasks: List[VideoTask] = self._generate_mock_data()
+    """Service layer for video task CRUD operations using PostgreSQL."""
 
-    def _generate_mock_data(self) -> List[VideoTask]:
-        """Generate 50 mock video tasks with varied statuses."""
-        tasks = []
-        base_time = datetime.utcnow()
-
-        # Distribution: 10 pending, 10 processing, 20 completed, 10 failed
-        status_config = [
-            (VideoTaskStatus.pending, 10),
-            (VideoTaskStatus.processing, 10),
-            (VideoTaskStatus.completed, 20),
-            (VideoTaskStatus.failed, 10),
-        ]
-
-        task_num = 1
-        for status, count in status_config:
-            for i in range(count):
-                task_id = f"task_{task_num:03d}"
-                created_at = base_time - timedelta(
-                    days=task_num % 7,
-                    hours=task_num % 24,
-                    minutes=task_num * 7 % 60
-                )
-
-                video_url = None
-                error_message = None
-
-                if status == VideoTaskStatus.completed:
-                    # Real playable video URLs for demo
-                    demo_videos = [
-                        "https://www.w3schools.com/html/mov_bbb.mp4",
-                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-                        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-                    ]
-                    video_url = demo_videos[task_num % len(demo_videos)]
-                elif status == VideoTaskStatus.failed:
-                    error_message = f"Error: Video generation failed - timeout after 300s"
-
-                tasks.append(VideoTask(
-                    id=task_id,
-                    title=f"AI Generated Video - Demo #{task_num}",
-                    status=status,
-                    createdAt=created_at,
-                    videoUrl=video_url,
-                    errorMessage=error_message,
-                ))
-                task_num += 1
-
-        # Sort by createdAt descending (newest first)
-        tasks.sort(key=lambda t: t.createdAt, reverse=True)
-        return tasks
-
-    def get_tasks(
+    async def get_tasks(
         self,
         limit: int = 20,
         cursor: Optional[str] = None
     ) -> Tuple[List[VideoTask], Optional[str]]:
         """
-        Get paginated list of video tasks.
+        Get paginated list of video tasks from database.
 
         Args:
             limit: Number of tasks to return (1-100)
@@ -82,33 +42,66 @@ class VideoTaskService:
         Returns:
             Tuple of (tasks list, next cursor or None)
         """
-        # Find start index from cursor
-        start_idx = 0
         if cursor:
-            for i, task in enumerate(self._tasks):
-                if task.id == cursor:
-                    start_idx = i + 1
-                    break
+            # Get the created_at of the cursor task for pagination
+            cursor_query = "SELECT created_at FROM video_tasks WHERE id = :cursor"
+            cursor_row = await database.fetch_one(cursor_query, {"cursor": cursor})
 
-        # Slice data
-        end_idx = start_idx + limit
-        page = self._tasks[start_idx:end_idx]
+            if cursor_row:
+                query = """
+                    SELECT id, title, status, created_at, updated_at, video_url, error_message
+                    FROM video_tasks
+                    WHERE created_at < :cursor_time
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """
+                rows = await database.fetch_all(query, {
+                    "cursor_time": cursor_row["created_at"],
+                    "limit": limit
+                })
+            else:
+                rows = []
+        else:
+            query = """
+                SELECT id, title, status, created_at, updated_at, video_url, error_message
+                FROM video_tasks
+                ORDER BY created_at DESC
+                LIMIT :limit
+            """
+            rows = await database.fetch_all(query, {"limit": limit})
+
+        tasks = [self._row_to_task(row) for row in rows]
 
         # Calculate next cursor
         next_cursor = None
-        if end_idx < len(self._tasks) and page:
-            next_cursor = page[-1].id
+        if tasks and len(tasks) == limit:
+            # Check if there are more tasks
+            last_task = tasks[-1]
+            check_query = """
+                SELECT 1 FROM video_tasks
+                WHERE created_at < :created_at
+                LIMIT 1
+            """
+            has_more = await database.fetch_one(check_query, {"created_at": last_task.createdAt})
+            if has_more:
+                next_cursor = last_task.id
 
-        return page, next_cursor
+        return tasks, next_cursor
 
-    def get_task_by_id(self, task_id: str) -> Optional[VideoTask]:
-        """Get a single video task by ID."""
-        for task in self._tasks:
-            if task.id == task_id:
-                return task
+    async def get_task_by_id(self, task_id: str) -> Optional[VideoTask]:
+        """Get a single video task by ID from database."""
+        query = """
+            SELECT id, title, status, created_at, updated_at, video_url, error_message
+            FROM video_tasks
+            WHERE id = :id
+        """
+        row = await database.fetch_one(query, {"id": task_id})
+
+        if row:
+            return self._row_to_task(row)
         return None
 
-    def create_task(self, title: str) -> VideoTask:
+    async def create_task(self, title: str) -> VideoTask:
         """
         Create a new video task with pending status.
 
@@ -119,73 +112,104 @@ class VideoTaskService:
             Created VideoTask instance
         """
         task_id = f"vt_{uuid4().hex[:8]}"
-        task = VideoTask(
+        now = datetime.now(timezone.utc)
+
+        query = """
+            INSERT INTO video_tasks (id, title, status, created_at, updated_at)
+            VALUES (:id, :title, :status, :created_at, :updated_at)
+        """
+        await database.execute(query, {
+            "id": task_id,
+            "title": title,
+            "status": VideoTaskStatus.pending.value,
+            "created_at": now,
+            "updated_at": now,
+        })
+
+        logger.info(f"[DB] Inserted task {task_id} with status=pending")
+
+        return VideoTask(
             id=task_id,
             title=title,
             status=VideoTaskStatus.pending,
-            createdAt=datetime.utcnow(),
+            createdAt=now,
             videoUrl=None,
             errorMessage=None,
         )
-        # Prepend to list (newest first)
-        self._tasks.insert(0, task)
-        return task
 
-    def update_task_status(
+    async def update_task_status(
         self,
         task_id: str,
         status: VideoTaskStatus,
         video_url: Optional[str] = None,
         error_message: Optional[str] = None,
     ) -> Optional[VideoTask]:
-        """Update task status and related fields."""
-        task = self.get_task_by_id(task_id)
-        if task:
-            # Create new task with updated fields (Pydantic models are immutable-ish)
-            idx = next(i for i, t in enumerate(self._tasks) if t.id == task_id)
-            updated = VideoTask(
-                id=task.id,
-                title=task.title,
-                status=status,
-                createdAt=task.createdAt,
-                videoUrl=video_url or task.videoUrl,
-                errorMessage=error_message or task.errorMessage,
-            )
-            self._tasks[idx] = updated
-            return updated
-        return None
+        """Update task status and related fields in database."""
+        now = datetime.now(timezone.utc)
+
+        query = """
+            UPDATE video_tasks
+            SET status = :status,
+                updated_at = :updated_at,
+                video_url = COALESCE(:video_url, video_url),
+                error_message = COALESCE(:error_message, error_message)
+            WHERE id = :id
+        """
+        await database.execute(query, {
+            "id": task_id,
+            "status": status.value,
+            "updated_at": now,
+            "video_url": video_url,
+            "error_message": error_message,
+        })
+
+        logger.info(f"[DB] Updated task {task_id} status={status.value}")
+
+        return await self.get_task_by_id(task_id)
+
+    def _row_to_task(self, row) -> VideoTask:
+        """Convert database row to VideoTask model."""
+        return VideoTask(
+            id=row["id"],
+            title=row["title"] or "",
+            status=VideoTaskStatus(row["status"]),
+            createdAt=row["created_at"],
+            videoUrl=row["video_url"],
+            errorMessage=row["error_message"],
+        )
 
 
-def simulate_task_processing(task_id: str, service: "VideoTaskService"):
+async def simulate_task_processing(task_id: str, service: VideoTaskService):
     """
     Background function to simulate task status transitions.
-    pending -> processing (after 5s) -> completed/failed (after 10s)
+    pending -> processing (after 5s) -> completed (after 15s)
+    All transitions are persisted to database.
     """
-    # Wait 5s then transition to processing
-    time.sleep(10)
-    service.update_task_status(task_id, VideoTaskStatus.processing)
-    logger.info(f"[BG] Task {task_id} transitioned to processing")
+    try:
+        # Wait 5s then transition to processing
+        await asyncio.sleep(5)
+        await service.update_task_status(task_id, VideoTaskStatus.processing)
+        logger.info(f"[BG] Task {task_id} transitioned to processing")
 
-    # Wait 10s then transition to completed (always success for demo)
-    time.sleep(10)
-    if True:  # Always complete successfully
-        demo_videos = [
-            "https://www.w3schools.com/html/mov_bbb.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        ]
-        service.update_task_status(
+        # Wait 15s then transition to completed
+        await asyncio.sleep(15)
+        video_url = random.choice(DEMO_VIDEOS)
+        await service.update_task_status(
             task_id,
             VideoTaskStatus.completed,
-            video_url=random.choice(demo_videos),
+            video_url=video_url,
         )
-        logger.info(f"[BG] Task {task_id} transitioned to completed")
-    else:
-        service.update_task_status(
-            task_id,
-            VideoTaskStatus.failed,
-            error_message="Error: Video generation failed - simulated timeout",
-        )
-        logger.info(f"[BG] Task {task_id} transitioned to failed")
+        logger.info(f"[BG] Task {task_id} transitioned to completed with videoUrl")
+    except Exception as e:
+        logger.error(f"[BG] Error processing task {task_id}: {e}")
+        try:
+            await service.update_task_status(
+                task_id,
+                VideoTaskStatus.failed,
+                error_message=f"Processing error: {str(e)}",
+            )
+        except Exception as update_err:
+            logger.error(f"[BG] Failed to update task {task_id} to failed: {update_err}")
 
 
 # Singleton instance

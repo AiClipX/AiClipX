@@ -1,7 +1,12 @@
+"""
+Video Tasks API Router - Async endpoints with database persistence.
+"""
+import asyncio
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Query, Request
+from fastapi.responses import JSONResponse
 
 from models.video_task import (
     CreateVideoTaskRequest,
@@ -22,7 +27,7 @@ router = APIRouter(prefix="/video-tasks", tags=["Video Tasks"])
 
 
 @router.get("", response_model=VideoTaskListResponse)
-def get_video_tasks(
+async def get_video_tasks(
     limit: int = Query(default=20, ge=1, le=100, description="Number of tasks to return"),
     cursor: Optional[str] = Query(default=None, description="Cursor for pagination"),
 ) -> VideoTaskListResponse:
@@ -33,7 +38,7 @@ def get_video_tasks(
     - **cursor**: ID of last task from previous page
     """
     logger.info("Fetch video tasks list")
-    tasks, next_cursor = video_task_service.get_tasks(limit=limit, cursor=cursor)
+    tasks, next_cursor = await video_task_service.get_tasks(limit=limit, cursor=cursor)
     logger.info(f"Fetched {len(tasks)} tasks, nextCursor: {next_cursor}")
 
     for t in tasks:
@@ -44,8 +49,8 @@ def get_video_tasks(
 
 @router.post("", response_model=CreateVideoTaskResponse, status_code=201)
 async def create_video_task(
-    request: CreateVideoTaskRequest,
-    background_tasks: BackgroundTasks,
+    request_body: CreateVideoTaskRequest,
+    request: Request,
 ) -> CreateVideoTaskResponse:
     """
     Create a new video task.
@@ -53,19 +58,17 @@ async def create_video_task(
     - **title**: Description of the video to generate
 
     Returns the created task with pending status.
-    Status will transition: pending -> processing (5s) -> completed/failed (15s)
+    Status will transition: pending -> processing (5s) -> completed (20s)
     """
-    logger.info(f"Creating video task: {request.title[:50]}...")
-    task = video_task_service.create_task(title=request.title)
-    logger.info(f"Created task {task.id} with status={task.status.value}")
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] Creating video task: {request_body.title[:50]}...")
 
-    # Schedule background processing simulation
-    background_tasks.add_task(
-        simulate_task_processing,
-        task.id,
-        video_task_service,
-    )
-    logger.info(f"Scheduled background processing for task {task.id}")
+    task = await video_task_service.create_task(title=request_body.title)
+    logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value}")
+
+    # Schedule background processing simulation using asyncio.create_task
+    asyncio.create_task(simulate_task_processing(task.id, video_task_service))
+    logger.info(f"[{request_id}] Scheduled background processing for task {task.id}")
 
     return CreateVideoTaskResponse(
         id=task.id,
@@ -75,27 +78,34 @@ async def create_video_task(
 
 
 @router.get("/{task_id}", response_model=VideoTask)
-def get_video_task(task_id: str) -> VideoTask:
+async def get_video_task(task_id: str, request: Request) -> VideoTask:
     """
     Get a single video task by ID.
 
-    - **task_id**: Unique task identifier (e.g., task_001)
+    - **task_id**: Unique task identifier (e.g., vt_abc12345)
     """
-    logger.info(f"Fetch video task {task_id}")
-    task = video_task_service.get_task_by_id(task_id)
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] Fetch video task {task_id}")
+
+    task = await video_task_service.get_task_by_id(task_id)
 
     if not task:
-        logger.info(f"Task not found: {task_id}")
-        raise HTTPException(status_code=404, detail="Task not found")
+        logger.info(f"[{request_id}] Task not found: {task_id}")
+        return JSONResponse(
+            status_code=404,
+            content={
+                "code": "NOT_FOUND",
+                "message": "Video task not found",
+                "requestId": request_id,
+            },
+            headers={"X-Request-Id": request_id},
+        )
 
-    logger.info(f"Task {task.id}: status={task.status.value}")
+    logger.info(f"[{request_id}] Task {task.id}: status={task.status.value}")
 
     if task.status.value == "completed":
-        logger.info("Status updated to completed")
-        logger.info(f"videoUrl: {task.videoUrl}")
-        logger.info("Video URL loaded successfully")
+        logger.info(f"[{request_id}] Status: completed, videoUrl: {task.videoUrl}")
     elif task.status.value == "failed":
-        logger.info("Status updated to failed")
-        logger.info(f"errorMessage: {task.errorMessage}")
+        logger.info(f"[{request_id}] Status: failed, errorMessage: {task.errorMessage}")
 
     return task

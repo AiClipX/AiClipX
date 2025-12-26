@@ -12,16 +12,29 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from contextlib import asynccontextmanager
+
+from database import close_db, init_db
 from generate_video import generate_video
 from routers import video_tasks
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle - startup and shutdown."""
+    # Startup
+    await init_db()
+    yield
+    # Shutdown
+    await close_db()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
-app = FastAPI(title="AiClipX", version=VERSION)
+app = FastAPI(title="AiClipX", version=VERSION, lifespan=lifespan)
 
 # Request ID middleware
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -123,7 +136,7 @@ class GenReq(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "🚀 AiClipX v0.3 backend OK"}
+    return {"message": f"AiClipX v{VERSION} backend OK"}
 
 @app.post("/generate")
 def generate_endpoint(req: GenReq):
