@@ -101,12 +101,17 @@ class VideoTaskService:
             return self._row_to_task(row)
         return None
 
-    async def create_task(self, title: str) -> VideoTask:
+    async def create_task(
+        self,
+        title: Optional[str] = None,
+        prompt: Optional[str] = None,
+    ) -> VideoTask:
         """
         Create a new video task with pending status.
 
         Args:
-            title: Task title/description
+            title: Task title/description (optional)
+            prompt: Task prompt for generation (optional)
 
         Returns:
             Created VideoTask instance
@@ -115,12 +120,13 @@ class VideoTaskService:
         now = datetime.now(timezone.utc)
 
         query = """
-            INSERT INTO video_tasks (id, title, status, created_at, updated_at)
-            VALUES (:id, :title, :status, :created_at, :updated_at)
+            INSERT INTO video_tasks (id, title, prompt, status, created_at, updated_at)
+            VALUES (:id, :title, :prompt, :status, :created_at, :updated_at)
         """
         await database.execute(query, {
             "id": task_id,
             "title": title,
+            "prompt": prompt,
             "status": VideoTaskStatus.pending.value,
             "created_at": now,
             "updated_at": now,
@@ -171,7 +177,7 @@ class VideoTaskService:
         """Convert database row to VideoTask model."""
         return VideoTask(
             id=row["id"],
-            title=row["title"] or "",
+            title=row["title"],  # Can be None
             status=VideoTaskStatus(row["status"]),
             createdAt=row["created_at"],
             videoUrl=row["video_url"],

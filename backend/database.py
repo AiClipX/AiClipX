@@ -23,6 +23,7 @@ CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS video_tasks (
     id VARCHAR(50) PRIMARY KEY,
     title VARCHAR(500),
+    prompt TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -36,6 +37,19 @@ CREATE_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_video_tasks_status ON video_tasks(status);",
 ]
 
+# Migration: Add prompt column if not exists
+ADD_PROMPT_COLUMN_SQL = """
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'video_tasks' AND column_name = 'prompt'
+    ) THEN
+        ALTER TABLE video_tasks ADD COLUMN prompt TEXT;
+    END IF;
+END $$;
+"""
+
 
 async def init_db():
     """Initialize database connection and create tables if needed."""
@@ -48,6 +62,10 @@ async def init_db():
     await database.execute(CREATE_TABLE_SQL)
     for idx_sql in CREATE_INDEX_SQL:
         await database.execute(idx_sql)
+
+    # Run migrations
+    logger.info("Running migrations...")
+    await database.execute(ADD_PROMPT_COLUMN_SQL)
     logger.info("Database tables ready")
 
 

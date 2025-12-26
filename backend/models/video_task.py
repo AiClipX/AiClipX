@@ -13,15 +13,30 @@ class VideoTaskStatus(str, Enum):
 
 
 class VideoTask(BaseModel):
+    """Video task model - consistent across all endpoints."""
+
     id: str
-    title: str
+    title: Optional[str] = None
     status: VideoTaskStatus
-    createdAt: datetime = Field(..., alias="createdAt")
+    createdAt: datetime
     videoUrl: Optional[str] = None
     errorMessage: Optional[str] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "vt_abc12345",
+                    "title": "My video demo",
+                    "status": "pending",
+                    "createdAt": "2025-12-26T10:30:45.123Z",
+                    "videoUrl": None,
+                    "errorMessage": None,
+                }
+            ]
+        },
+    }
 
 
 class VideoTaskListResponse(BaseModel):
@@ -30,13 +45,13 @@ class VideoTaskListResponse(BaseModel):
 
 
 class CreateVideoTaskRequest(BaseModel):
-    title: str = Field(..., min_length=1, max_length=500)
+    """Request body for creating a video task. All fields optional."""
 
+    title: Optional[str] = Field(default=None, max_length=500)
+    prompt: Optional[str] = Field(default=None, max_length=2000)
 
-class CreateVideoTaskResponse(BaseModel):
-    id: str
-    status: VideoTaskStatus
-    createdAt: datetime = Field(..., alias="createdAt")
-
-    class Config:
-        populate_by_name = True
+    model_config = {
+        "json_schema_extra": {
+            "examples": [{"title": "Video demo", "prompt": "optional"}]
+        }
+    }

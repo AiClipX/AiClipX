@@ -5,12 +5,11 @@ import asyncio
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Query, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from models.video_task import (
     CreateVideoTaskRequest,
-    CreateVideoTaskResponse,
     VideoTask,
     VideoTaskListResponse,
 )
@@ -47,34 +46,35 @@ async def get_video_tasks(
     return VideoTaskListResponse(data=tasks, nextCursor=next_cursor)
 
 
-@router.post("", response_model=CreateVideoTaskResponse, status_code=201)
+@router.post("", response_model=VideoTask, status_code=201)
 async def create_video_task(
     request_body: CreateVideoTaskRequest,
     request: Request,
-) -> CreateVideoTaskResponse:
+) -> VideoTask:
     """
     Create a new video task.
 
-    - **title**: Description of the video to generate
+    - **title**: Optional title/description (max 500 chars)
+    - **prompt**: Optional prompt for video generation (max 2000 chars)
 
     Returns the created task with pending status.
     Status will transition: pending -> processing (5s) -> completed (20s)
     """
     request_id = getattr(request.state, "request_id", "unknown")
-    logger.info(f"[{request_id}] Creating video task: {request_body.title[:50]}...")
+    title_log = (request_body.title[:50] + "...") if request_body.title else "(no title)"
+    logger.info(f"[{request_id}] Creating video task: {title_log}")
 
-    task = await video_task_service.create_task(title=request_body.title)
+    task = await video_task_service.create_task(
+        title=request_body.title,
+        prompt=request_body.prompt,
+    )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value}")
 
     # Schedule background processing simulation using asyncio.create_task
     asyncio.create_task(simulate_task_processing(task.id, video_task_service))
     logger.info(f"[{request_id}] Scheduled background processing for task {task.id}")
 
-    return CreateVideoTaskResponse(
-        id=task.id,
-        status=task.status,
-        createdAt=task.createdAt,
-    )
+    return task
 
 
 @router.get("/{task_id}", response_model=VideoTask)
