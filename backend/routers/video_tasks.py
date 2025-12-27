@@ -3,6 +3,7 @@ Video Tasks API Router - Async endpoints with database persistence.
 """
 import asyncio
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Query, Request
@@ -27,21 +28,52 @@ router = APIRouter(prefix="/video-tasks", tags=["Video Tasks"])
 
 @router.get("", response_model=VideoTaskListResponse)
 async def get_video_tasks(
-    limit: int = Query(default=20, ge=1, le=100, description="Number of tasks to return"),
-    cursor: Optional[str] = Query(default=None, description="Cursor for pagination"),
+    request: Request,
+    limit: int = Query(default=20, ge=1, le=50, description="Number of tasks to return (max 50)"),
+    cursor: Optional[str] = Query(default=None, description="Opaque cursor for pagination"),
+    status: Optional[str] = Query(
+        default=None,
+        pattern="^(pending|processing|completed|failed)$",
+        description="Filter by status",
+    ),
+    q: Optional[str] = Query(default=None, max_length=100, description="Search in title"),
+    sort: str = Query(
+        default="createdAt_desc",
+        pattern="^createdAt_(desc|asc)$",
+        description="Sort order: createdAt_desc or createdAt_asc",
+    ),
 ) -> VideoTaskListResponse:
     """
-    Get paginated list of video tasks.
+    Get paginated list of video tasks with filtering and sorting.
 
-    - **limit**: Number of tasks (1-100, default 20)
-    - **cursor**: ID of last task from previous page
+    - **limit**: Number of tasks (1-50, default 20)
+    - **cursor**: Opaque cursor from previous response's nextCursor
+    - **status**: Filter by status (pending|processing|completed|failed)
+    - **q**: Search in title (case-insensitive)
+    - **sort**: Sort order (createdAt_desc|createdAt_asc, default desc)
     """
-    logger.info("Fetch video tasks list")
-    tasks, next_cursor = await video_task_service.get_tasks(limit=limit, cursor=cursor)
-    logger.info(f"Fetched {len(tasks)} tasks, nextCursor: {next_cursor}")
+    start_time = time.perf_counter()
+    request_id = getattr(request.state, "request_id", "unknown")
 
-    for t in tasks:
-        logger.info(f"Task {t.id}: status={t.status.value}")
+    # Log request with all params
+    logger.info(
+        f"[{request_id}] GET /api/video-tasks "
+        f"limit={limit} cursor={cursor} status={status} q={q} sort={sort}"
+    )
+
+    tasks, next_cursor = await video_task_service.get_tasks(
+        limit=limit,
+        cursor=cursor,
+        status=status,
+        q=q,
+        sort=sort,
+    )
+
+    # Calculate latency
+    latency_ms = int((time.perf_counter() - start_time) * 1000)
+    logger.info(
+        f"[{request_id}] Fetched {len(tasks)} tasks, nextCursor={next_cursor}, latency={latency_ms}ms"
+    )
 
     return VideoTaskListResponse(data=tasks, nextCursor=next_cursor)
 

@@ -3,6 +3,7 @@ Video Task Service - Database-backed persistence layer.
 All operations read/write from PostgreSQL database.
 """
 import asyncio
+import base64
 import logging
 import random
 from datetime import datetime, timezone
@@ -13,6 +14,22 @@ from database import database
 from models.video_task import VideoTask, VideoTaskStatus
 
 logger = logging.getLogger(__name__)
+
+
+def encode_cursor(created_at: datetime, task_id: str) -> str:
+    """Encode cursor as base64 string."""
+    raw = f"{created_at.isoformat()}|{task_id}"
+    return base64.urlsafe_b64encode(raw.encode()).decode()
+
+
+def decode_cursor(cursor: str) -> Optional[Tuple[datetime, str]]:
+    """Decode cursor from base64 string. Returns None if invalid."""
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode()).decode()
+        created_at_str, task_id = raw.split("|", 1)
+        return datetime.fromisoformat(created_at_str), task_id
+    except Exception:
+        return None
 
 # Demo video URLs for completed tasks
 DEMO_VIDEOS = [
@@ -30,61 +47,87 @@ class VideoTaskService:
     async def get_tasks(
         self,
         limit: int = 20,
-        cursor: Optional[str] = None
+        cursor: Optional[str] = None,
+        status: Optional[str] = None,
+        q: Optional[str] = None,
+        sort: str = "createdAt_desc",
     ) -> Tuple[List[VideoTask], Optional[str]]:
         """
         Get paginated list of video tasks from database.
 
         Args:
-            limit: Number of tasks to return (1-100)
-            cursor: Task ID to start after (for pagination)
+            limit: Number of tasks to return (1-50)
+            cursor: Opaque cursor for pagination (base64 encoded)
+            status: Filter by status (pending|processing|completed|failed)
+            q: Search in title (ILIKE)
+            sort: Sort order (createdAt_desc|createdAt_asc)
 
         Returns:
             Tuple of (tasks list, next cursor or None)
         """
+        # Build dynamic query
+        conditions = []
+        params = {"limit": limit}
+
+        # Determine sort order
+        is_desc = sort == "createdAt_desc"
+        order_clause = "created_at DESC, id DESC" if is_desc else "created_at ASC, id ASC"
+        cursor_op = "<" if is_desc else ">"
+
+        # Cursor condition (composite key for stable pagination)
         if cursor:
-            # Get the created_at of the cursor task for pagination
-            cursor_query = "SELECT created_at FROM video_tasks WHERE id = :cursor"
-            cursor_row = await database.fetch_one(cursor_query, {"cursor": cursor})
+            decoded = decode_cursor(cursor)
+            if decoded:
+                cursor_time, cursor_id = decoded
+                conditions.append(f"(created_at, id) {cursor_op} (:cursor_time, :cursor_id)")
+                params["cursor_time"] = cursor_time
+                params["cursor_id"] = cursor_id
 
-            if cursor_row:
-                query = """
-                    SELECT id, title, status, created_at, updated_at, video_url, error_message
-                    FROM video_tasks
-                    WHERE created_at < :cursor_time
-                    ORDER BY created_at DESC
-                    LIMIT :limit
-                """
-                rows = await database.fetch_all(query, {
-                    "cursor_time": cursor_row["created_at"],
-                    "limit": limit
-                })
-            else:
-                rows = []
-        else:
-            query = """
-                SELECT id, title, status, created_at, updated_at, video_url, error_message
-                FROM video_tasks
-                ORDER BY created_at DESC
-                LIMIT :limit
-            """
-            rows = await database.fetch_all(query, {"limit": limit})
+        # Status filter
+        if status:
+            conditions.append("status = :status")
+            params["status"] = status
 
+        # Title search (ILIKE)
+        if q:
+            conditions.append("title ILIKE :q")
+            params["q"] = f"%{q}%"
+
+        # Build WHERE clause
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+        # Execute query
+        query = f"""
+            SELECT id, title, status, created_at, updated_at, video_url, error_message
+            FROM video_tasks
+            WHERE {where_clause}
+            ORDER BY {order_clause}
+            LIMIT :limit
+        """
+        rows = await database.fetch_all(query, params)
         tasks = [self._row_to_task(row) for row in rows]
 
         # Calculate next cursor
         next_cursor = None
         if tasks and len(tasks) == limit:
-            # Check if there are more tasks
             last_task = tasks[-1]
-            check_query = """
-                SELECT 1 FROM video_tasks
-                WHERE created_at < :created_at
-                LIMIT 1
-            """
-            has_more = await database.fetch_one(check_query, {"created_at": last_task.createdAt})
+            # Check if there are more tasks with same filters
+            check_params = {"created_at": last_task.createdAt, "id": last_task.id}
+            check_conditions = [f"(created_at, id) {cursor_op} (:created_at, :id)"]
+
+            if status:
+                check_conditions.append("status = :status")
+                check_params["status"] = status
+            if q:
+                check_conditions.append("title ILIKE :q")
+                check_params["q"] = f"%{q}%"
+
+            check_where = " AND ".join(check_conditions)
+            check_query = f"SELECT 1 FROM video_tasks WHERE {check_where} LIMIT 1"
+            has_more = await database.fetch_one(check_query, check_params)
+
             if has_more:
-                next_cursor = last_task.id
+                next_cursor = encode_cursor(last_task.createdAt, last_task.id)
 
         return tasks, next_cursor
 
