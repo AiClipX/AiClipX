@@ -1,7 +1,7 @@
-import { Video, VIDEO_STATUS_CONFIG } from "../../types/videoTypes";
 import { useRouter } from "next/router";
+import { useState } from "react";
+import { Video, VIDEO_STATUS_CONFIG } from "../../types/videoTypes";
 import { useVideoListContext } from "../hooks/VideoListContext";
-import { useEffect, useState } from "react";
 
 interface Props {
   video: Video;

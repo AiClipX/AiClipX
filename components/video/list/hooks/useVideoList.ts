@@ -6,42 +6,56 @@ import { useMemo, useState, useEffect } from "react";
 
 const PAGE_SIZE = 12;
 const DEBOUNCE_DELAY = 500; // 500ms
+
 export function useVideoList() {
   const { status, sort, search, page } = useVideoListContext();
   const [debouncedSearch, setDebouncedSearch] = useState(search);
 
-  // debounce search
+  // -----------------------------
+  // Debounce search input
+  // -----------------------------
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(search);
-    }, 500);
+    }, DEBOUNCE_DELAY);
 
     return () => clearTimeout(handler);
   }, [search]);
 
+  // -----------------------------
+  // Fetch + Polling
+  // -----------------------------
   const query = useQuery<{ data: Video[] }, Error>({
     queryKey: ["videos", "list"],
     queryFn: fetchVideos,
     staleTime: 5000,
-    refetchInterval: 5000, // polling 5s
+    refetchInterval: 5000, // polling mỗi 5s
+    refetchIntervalInBackground: true,
   });
 
-  // Filter + sort
+  // -----------------------------
+  // Filter + Search + Sort
+  // -----------------------------
   const filteredVideos = useMemo(() => {
     if (!query.data) return [];
 
     let result = [...query.data.data];
 
+    // Filter by status
     if (status !== "All") {
       result = result.filter((v) => v.status === status);
     }
 
     if (debouncedSearch) {
-      result = result.filter((v) =>
-        v.title.toLowerCase().includes(debouncedSearch.toLowerCase())
-      );
+      const keyword = debouncedSearch.toLowerCase();
+
+      result = result.filter((v) => {
+        const title = v.title ?? "";
+        return title.toLowerCase().includes(keyword);
+      });
     }
 
+    // Sort by createdAt
     result.sort((a, b) =>
       sort === "oldest"
         ? new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -51,17 +65,22 @@ export function useVideoList() {
     return result;
   }, [query.data, status, sort, debouncedSearch]);
 
+  // -----------------------------
   // Pagination
+  // -----------------------------
   const paginatedVideos = useMemo(() => {
-    const start = (page - 1) * 12;
-    return filteredVideos.slice(start, start + 12);
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredVideos.slice(start, start + PAGE_SIZE);
   }, [filteredVideos, page]);
 
+  // -----------------------------
+  // Public API
+  // -----------------------------
   return {
     videos: paginatedVideos,
     total: filteredVideos.length,
-    pageSize: 12,
+    pageSize: PAGE_SIZE,
     loading: query.isLoading,
-    refetch: query.refetch, // thêm dòng này
+    refetch: query.refetch,
   };
 }

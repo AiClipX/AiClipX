@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 
-const API_URL = "https://aiclipx-iam2.onrender.com/api/video-tasks";
+const API_URL = `${process.env.NEXT_PUBLIC_API_VIDEO}/api/video-tasks`;
 
 export function useCreateVideo() {
   const queryClient = useQueryClient();
