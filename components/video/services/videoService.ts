@@ -1,7 +1,7 @@
 import axios from "axios";
 import { Video, VideoStatus } from "../types/videoTypes";
 
-const API_URL = `https://aiclipx-iam2.onrender.com/api/video-tasks`;
+const API_URL = `${process.env.NEXT_PUBLIC_API_VIDEO}/api/video-tasks`;
 
 /* =====================
    Helpers
