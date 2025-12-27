@@ -23,7 +23,7 @@ export function useVideoList() {
     queryKey: ["videos", "list"],
     queryFn: fetchVideos,
     staleTime: 5000,
-    refetchInterval: 5000, // polling mỗi 5 giây
+    refetchInterval: 5000, // polling 5s
   });
 
   // Filter + sort

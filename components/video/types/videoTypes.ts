@@ -18,3 +18,29 @@ export interface Video {
   prompt: string;
   errorMessage?: string | null;
 }
+
+export const VIDEO_STATUS_CONFIG: Record<
+  VideoStatus,
+  { label: string; className: string }
+> = {
+  Draft: {
+    label: "Draft",
+    className: "text-gray-600",
+  },
+  Pending: {
+    label: "Waiting",
+    className: "text-gray-400",
+  },
+  Processing: {
+    label: "Processing…",
+    className: "text-yellow-400",
+  },
+  Completed: {
+    label: "Completed",
+    className: "text-green-400",
+  },
+  Failed: {
+    label: "Failed",
+    className: "text-red-500",
+  },
+};

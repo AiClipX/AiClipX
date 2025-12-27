@@ -1,4 +1,4 @@
-import { Video } from "../../types/videoTypes";
+import { Video, VIDEO_STATUS_CONFIG } from "../../types/videoTypes";
 import { useRouter } from "next/router";
 import { useVideoListContext } from "../hooks/VideoListContext";
 import { useEffect, useState } from "react";
@@ -11,6 +11,7 @@ export function VideoListItem({ video }: Props) {
   const router = useRouter();
   const { page, status, sort, search } = useVideoListContext();
   const [hovered, setHovered] = useState(false);
+  const statusConfig = VIDEO_STATUS_CONFIG[video.status];
 
   const handleClick = () => {
     if (video.status === "Failed") return;
@@ -119,7 +120,7 @@ export function VideoListItem({ video }: Props) {
           }
         `}
                 >
-                  {video.status}
+                  {statusConfig.label}
                 </div>
               )}
           </>
@@ -132,20 +133,8 @@ export function VideoListItem({ video }: Props) {
           <span className="text-neutral-400">
             {new Date(video.createdAt).toLocaleDateString()}
           </span>
-          <span
-            className={`text-xs font-semibold ${
-              video.status === "Draft"
-                ? "text-gray-600"
-                : video.status === "Processing"
-                ? "text-yellow-400"
-                : video.status === "Completed"
-                ? "text-green-400"
-                : video.status === "Pending"
-                ? "text-gray-400"
-                : "text-red-500"
-            }`}
-          >
-            {video.status}
+          <span className={`text-xs font-semibold ${statusConfig.className}`}>
+            {statusConfig.label}
           </span>
         </div>
       </div>

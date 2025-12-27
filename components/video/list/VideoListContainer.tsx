@@ -7,7 +7,7 @@ import { EmptyState } from "./components/EmptyState";
 import { useVideoListContext } from "./hooks/VideoListContext";
 import { useVideoList } from "./hooks/useVideoList";
 import { CreateVideoButton } from "./components/CreateVideoButton";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CreateVideoModal } from "./components/CreateVideoModal";
 
 export function VideoListContainer() {
@@ -22,7 +22,8 @@ export function VideoListContainer() {
     setPage,
     initialized,
   } = useVideoListContext();
-  const { videos, loading, total, pageSize, refetch } = useVideoList(); // thêm refetch
+
+  const { videos, loading, total, pageSize, refetch } = useVideoList();
   const [openCreate, setOpenCreate] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -39,7 +40,7 @@ export function VideoListContainer() {
 
   return (
     <section className="max-w-7xl mx-auto px-4 py-4 text-white">
-      {/* Header + Create Button + Refresh */}
+      {/* Header + Create Button */}
       <div className="flex justify-between items-center mb-4 gap-4">
         <h1 className="text-xl font-semibold">Video List</h1>
         <div className="flex items-center gap-2">
@@ -47,7 +48,7 @@ export function VideoListContainer() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters + Search + Refresh */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
         <StatusFilter
           value={status}
