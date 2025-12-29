@@ -5,69 +5,104 @@ import { Video } from "../../types/videoTypes";
 import { useMemo, useState, useEffect } from "react";
 
 const PAGE_SIZE = 12;
-const DEBOUNCE_DELAY = 500; // ms
-const LOAD_TIMEOUT = 30000; // 30s
+const DEBOUNCE_DELAY = 500;
+const POLLING_INTERVAL = 5000;
+const FIRST_LOAD_TIMEOUT = 30000; // 30s
 
 export function useVideoList() {
   const { status, sort, search, page, initialized } = useVideoListContext();
+
   const [debouncedSearch, setDebouncedSearch] = useState(search);
+
+  /** Force polling after create */
+  const [forcePolling, setForcePolling] = useState(false);
+
+  /** Timeout handling */
   const [timeoutError, setTimeoutError] = useState(false);
 
-  // -----------------------------
+  // ----------------------------------
   // Debounce search
-  // -----------------------------
+  // ----------------------------------
   useEffect(() => {
-    const handler = setTimeout(() => {
+    const timer = setTimeout(() => {
       setDebouncedSearch(search);
     }, DEBOUNCE_DELAY);
 
-    return () => clearTimeout(handler);
+    return () => clearTimeout(timer);
   }, [search]);
 
-  // -----------------------------
-  // Fetch + Smart polling
-  // -----------------------------
+  // ----------------------------------
+  // Fetch + Smart Polling
+  // ----------------------------------
   const query = useQuery<{ data: Video[] }, Error>({
     queryKey: ["videos", "list"],
     queryFn: fetchVideos,
     enabled: initialized,
 
-    staleTime: 5000,
+    staleTime: 0,
 
     refetchInterval: (query) => {
       const videos = query.state.data?.data;
-      if (!videos) return false;
 
+      // Force polling after create
+      if (forcePolling) return POLLING_INTERVAL;
+
+      // First load: allow polling
+      if (!videos) return POLLING_INTERVAL;
+
+      // Poll only when needed
       const hasInProgress = videos.some(
         (v) => v.status === "Pending" || v.status === "Processing"
       );
 
-      return hasInProgress ? 5000 : false;
+      return hasInProgress ? POLLING_INTERVAL : false;
     },
 
     retry: 2,
     retryDelay: 2000,
   });
 
-  // -----------------------------
-  // 30s loading timeout guard
-  // -----------------------------
+  // ----------------------------------
+  // First load timeout (30s)
+  // ----------------------------------
   useEffect(() => {
-    if (!query.isLoading) {
-      setTimeoutError(false);
-      return;
-    }
+    if (!initialized) return;
+    if (query.data || query.isError) return;
 
     const timer = setTimeout(() => {
-      setTimeoutError(true);
-    }, LOAD_TIMEOUT);
+      if (!query.data) {
+        setTimeoutError(true);
+      }
+    }, FIRST_LOAD_TIMEOUT);
 
     return () => clearTimeout(timer);
-  }, [query.isLoading]);
+  }, [initialized, query.data, query.isError]);
 
-  // -----------------------------
+  // Clear timeout error when data arrives
+  useEffect(() => {
+    if (query.data) {
+      setTimeoutError(false);
+    }
+  }, [query.data]);
+
+  // ----------------------------------
+  // Stop force polling when done
+  // ----------------------------------
+  useEffect(() => {
+    if (!query.data || !forcePolling) return;
+
+    const hasInProgress = query.data.data.some(
+      (v) => v.status === "Pending" || v.status === "Processing"
+    );
+
+    if (!hasInProgress) {
+      setForcePolling(false);
+    }
+  }, [query.data, forcePolling]);
+
+  // ----------------------------------
   // Filter + Search + Sort
-  // -----------------------------
+  // ----------------------------------
   const filteredVideos = useMemo(() => {
     if (!query.data) return [];
 
@@ -80,10 +115,9 @@ export function useVideoList() {
     if (debouncedSearch) {
       const keyword = debouncedSearch.toLowerCase();
 
-      result = result.filter((v) => {
-        const title = v.title ?? "";
-        return title.toLowerCase().includes(keyword);
-      });
+      result = result.filter((v) =>
+        (v.title ?? "").toLowerCase().includes(keyword)
+      );
     }
 
     result.sort((a, b) =>
@@ -95,23 +129,34 @@ export function useVideoList() {
     return result;
   }, [query.data, status, sort, debouncedSearch]);
 
-  // -----------------------------
+  // ----------------------------------
   // Pagination
-  // -----------------------------
+  // ----------------------------------
   const paginatedVideos = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
     return filteredVideos.slice(start, start + PAGE_SIZE);
   }, [filteredVideos, page]);
 
-  // -----------------------------
+  // ----------------------------------
   // Public API
-  // -----------------------------
+  // ----------------------------------
   return {
     videos: paginatedVideos,
     total: filteredVideos.length,
     pageSize: PAGE_SIZE,
+
     loading: query.isLoading,
+    error: query.isError,
     timeoutError,
-    refetch: query.refetch,
+
+    refetch: async () => {
+      setTimeoutError(false);
+      return query.refetch();
+    },
+
+    startPollingAfterCreate: () => {
+      setForcePolling(true);
+      query.refetch();
+    },
   };
 }
