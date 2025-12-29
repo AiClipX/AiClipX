@@ -216,6 +216,24 @@ class VideoTaskService:
 
         return await self.get_task_by_id(task_id)
 
+    async def delete_task(self, task_id: str) -> bool:
+        """
+        Delete a video task by ID (hard delete).
+
+        Args:
+            task_id: Task ID to delete
+
+        Returns:
+            True if task was deleted, False if not found
+        """
+        query = "DELETE FROM video_tasks WHERE id = :id"
+        result = await database.execute(query, {"id": task_id})
+
+        if result:
+            logger.info(f"[DB] Deleted task {task_id}")
+            return True
+        return False
+
     def _row_to_task(self, row) -> VideoTask:
         """Convert database row to VideoTask model."""
         return VideoTask(

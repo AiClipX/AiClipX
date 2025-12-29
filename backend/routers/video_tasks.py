@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from models.video_task import (
@@ -141,3 +141,36 @@ async def get_video_task(task_id: str, request: Request) -> VideoTask:
         logger.info(f"[{request_id}] Status: failed, errorMessage: {task.errorMessage}")
 
     return task
+
+
+@router.delete("/{task_id}", status_code=204)
+async def delete_video_task(task_id: str, request: Request):
+    """
+    Delete a video task by ID.
+
+    - **task_id**: Unique task identifier (e.g., vt_abc12345)
+
+    Returns 204 No Content on success, 404 if not found.
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] DELETE video task {task_id}")
+
+    # Check if task exists
+    task = await video_task_service.get_task_by_id(task_id)
+    if not task:
+        logger.info(f"[{request_id}] Task not found: {task_id}")
+        return JSONResponse(
+            status_code=404,
+            content={
+                "code": "NOT_FOUND",
+                "message": "Video task not found",
+                "requestId": request_id,
+            },
+            headers={"X-Request-Id": request_id},
+        )
+
+    # Delete task
+    await video_task_service.delete_task(task_id)
+    logger.info(f"[{request_id}] Deleted task {task_id}")
+
+    return Response(status_code=204)
