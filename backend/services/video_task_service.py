@@ -184,6 +184,8 @@ class VideoTaskService:
             createdAt=now,
             videoUrl=None,
             errorMessage=None,
+            updatedAt=now,
+            progress=0,
         )
 
     async def update_task_status(
@@ -234,15 +236,28 @@ class VideoTaskService:
             return True
         return False
 
+    def _calculate_progress(self, status: VideoTaskStatus) -> int:
+        """Calculate progress percentage based on status."""
+        progress_map = {
+            VideoTaskStatus.pending: 0,
+            VideoTaskStatus.processing: 50,
+            VideoTaskStatus.completed: 100,
+            VideoTaskStatus.failed: 0,
+        }
+        return progress_map.get(status, 0)
+
     def _row_to_task(self, row) -> VideoTask:
         """Convert database row to VideoTask model."""
+        status = VideoTaskStatus(row["status"])
         return VideoTask(
             id=row["id"],
             title=row["title"],  # Can be None
-            status=VideoTaskStatus(row["status"]),
+            status=status,
             createdAt=row["created_at"],
             videoUrl=row["video_url"],
             errorMessage=row["error_message"],
+            updatedAt=row["updated_at"],
+            progress=self._calculate_progress(status),
         )
 
 

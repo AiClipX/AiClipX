@@ -12,6 +12,14 @@ class VideoTaskStatus(str, Enum):
     failed = "failed"
 
 
+class DebugInfo(BaseModel):
+    """Debug information for diagnostics (optional)."""
+
+    requestId: Optional[str] = None
+    worker: Optional[str] = None
+    trace: Optional[str] = None
+
+
 class VideoTask(BaseModel):
     """Video task model - consistent across all endpoints."""
 
@@ -21,6 +29,11 @@ class VideoTask(BaseModel):
     createdAt: datetime
     videoUrl: Optional[str] = None
     errorMessage: Optional[str] = None
+
+    # Optional diagnostic fields (Stage 5)
+    updatedAt: Optional[datetime] = None
+    progress: Optional[int] = Field(default=None, ge=0, le=100)
+    debug: Optional[DebugInfo] = None
 
     model_config = {
         "populate_by_name": True,
@@ -33,6 +46,9 @@ class VideoTask(BaseModel):
                     "createdAt": "2025-12-26T10:30:45.123Z",
                     "videoUrl": None,
                     "errorMessage": None,
+                    "updatedAt": "2025-12-26T10:30:45.123Z",
+                    "progress": 0,
+                    "debug": {"requestId": "req_abc123"},
                 }
             ]
         },

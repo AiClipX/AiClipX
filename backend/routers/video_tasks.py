@@ -6,14 +6,16 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Header, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 from models.video_task import (
     CreateVideoTaskRequest,
+    DebugInfo,
     VideoTask,
     VideoTaskListResponse,
 )
+from services.idempotency import check_idempotency, store_idempotency
 from services.video_task_service import (
     simulate_task_processing,
     video_task_service,
@@ -82,12 +84,18 @@ async def get_video_tasks(
 async def create_video_task(
     request_body: CreateVideoTaskRequest,
     request: Request,
+    idempotency_key: Optional[str] = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="Optional key to prevent duplicate task creation (valid for 60 minutes)",
+    ),
 ) -> VideoTask:
     """
     Create a new video task.
 
     - **title**: Optional title/description (max 500 chars)
     - **prompt**: Optional prompt for video generation (max 2000 chars)
+    - **Idempotency-Key** header: Optional, prevents duplicate creation for 60 minutes
 
     Returns the created task with pending status.
     Status will transition: pending -> processing (5s) -> completed (20s)
@@ -96,15 +104,37 @@ async def create_video_task(
     title_log = (request_body.title[:50] + "...") if request_body.title else "(no title)"
     logger.info(f"[{request_id}] Creating video task: {title_log}")
 
+    # Check idempotency if key provided
+    if idempotency_key:
+        payload = {"title": request_body.title, "prompt": request_body.prompt}
+        existing_task_id = check_idempotency(idempotency_key, payload)
+
+        if existing_task_id:
+            # Return existing task
+            logger.info(f"[{request_id}] Idempotency hit: returning existing task {existing_task_id}")
+            task = await video_task_service.get_task_by_id(existing_task_id)
+            if task:
+                task.debug = DebugInfo(requestId=request_id)
+                return task
+
+    # Create new task
     task = await video_task_service.create_task(
         title=request_body.title,
         prompt=request_body.prompt,
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value}")
 
+    # Store idempotency key if provided
+    if idempotency_key:
+        payload = {"title": request_body.title, "prompt": request_body.prompt}
+        store_idempotency(idempotency_key, payload, task.id)
+
     # Schedule background processing simulation using asyncio.create_task
     asyncio.create_task(simulate_task_processing(task.id, video_task_service))
     logger.info(f"[{request_id}] Scheduled background processing for task {task.id}")
+
+    # Add debug info
+    task.debug = DebugInfo(requestId=request_id)
 
     return task
 
@@ -115,6 +145,11 @@ async def get_video_task(task_id: str, request: Request) -> VideoTask:
     Get a single video task by ID.
 
     - **task_id**: Unique task identifier (e.g., vt_abc12345)
+
+    Response includes diagnostic fields:
+    - **updatedAt**: Last update timestamp
+    - **progress**: 0-100 based on status
+    - **debug**: Request tracing info
     """
     request_id = getattr(request.state, "request_id", "unknown")
     logger.info(f"[{request_id}] Fetch video task {task_id}")
@@ -133,7 +168,10 @@ async def get_video_task(task_id: str, request: Request) -> VideoTask:
             headers={"X-Request-Id": request_id},
         )
 
-    logger.info(f"[{request_id}] Task {task.id}: status={task.status.value}")
+    # Inject debug info
+    task.debug = DebugInfo(requestId=request_id)
+
+    logger.info(f"[{request_id}] Task {task.id}: status={task.status.value}, progress={task.progress}")
 
     if task.status.value == "completed":
         logger.info(f"[{request_id}] Status: completed, videoUrl: {task.videoUrl}")
