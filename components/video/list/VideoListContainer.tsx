@@ -7,7 +7,7 @@ import { EmptyState } from "./components/EmptyState";
 import { useVideoListContext } from "./hooks/VideoListContext";
 import { useVideoList } from "./hooks/useVideoList";
 import { CreateVideoButton } from "./components/CreateVideoButton";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { CreateVideoModal } from "./components/CreateVideoModal";
 
 export function VideoListContainer() {
@@ -23,7 +23,9 @@ export function VideoListContainer() {
     initialized,
   } = useVideoListContext();
 
-  const { videos, loading, total, pageSize, refetch } = useVideoList();
+  const { videos, loading, total, pageSize, refetch, timeoutError } =
+    useVideoList();
+
   const [openCreate, setOpenCreate] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -40,15 +42,13 @@ export function VideoListContainer() {
 
   return (
     <section className="max-w-7xl mx-auto px-4 py-4 text-white">
-      {/* Header + Create Button */}
+      {/* Header */}
       <div className="flex justify-between items-center mb-4 gap-4">
         <h1 className="text-xl font-semibold">Video List</h1>
-        <div className="flex items-center gap-2">
-          <CreateVideoButton onClick={() => setOpenCreate(true)} />
-        </div>
+        <CreateVideoButton onClick={() => setOpenCreate(true)} />
       </div>
 
-      {/* Filters + Search + Refresh */}
+      {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
         <StatusFilter
           value={status}
@@ -57,6 +57,7 @@ export function VideoListContainer() {
             setPage(1);
           }}
         />
+
         <div className="flex items-center gap-2 mb-4">
           <span>Search:</span>
           <input
@@ -68,18 +69,21 @@ export function VideoListContainer() {
               setPage(1);
             }}
           />
+
           <button
             onClick={handleRefresh}
             className="px-3 py-1 bg-blue-600 rounded text-white text-sm hover:bg-blue-500 transition"
           >
             Refresh
           </button>
+
           {lastUpdated && (
             <span className="text-sm text-neutral-400">
               Last updated: {lastUpdated.toLocaleTimeString()}
             </span>
           )}
         </div>
+
         <SortByDate
           value={sort}
           onChange={(v) => {
@@ -89,8 +93,24 @@ export function VideoListContainer() {
         />
       </div>
 
-      {/* Video List */}
-      {loading && <LoadingState />}
+      {/* Timeout message */}
+      {timeoutError && (
+        <div className="mb-4 p-4 rounded bg-neutral-800 text-neutral-300 text-sm flex items-center justify-between">
+          <span>
+            The server is taking longer than expected to respond. It may be
+            waking up.
+          </span>
+          <button
+            onClick={handleRefresh}
+            className="ml-4 px-3 py-1 bg-blue-600 rounded hover:bg-blue-500 transition text-white text-sm"
+          >
+            Refresh
+          </button>
+        </div>
+      )}
+
+      {/* Content */}
+      {loading && !timeoutError && <LoadingState />}
       {!loading && videos.length === 0 && <EmptyState />}
       {!loading && videos.length > 0 && (
         <>
@@ -104,7 +124,7 @@ export function VideoListContainer() {
         </>
       )}
 
-      {/* Create Video Modal */}
+      {/* Create Modal */}
       <CreateVideoModal
         open={openCreate}
         onClose={() => setOpenCreate(false)}

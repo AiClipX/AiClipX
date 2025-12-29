@@ -5,14 +5,16 @@ import { Video } from "../../types/videoTypes";
 import { useMemo, useState, useEffect } from "react";
 
 const PAGE_SIZE = 12;
-const DEBOUNCE_DELAY = 500; // 500ms
+const DEBOUNCE_DELAY = 500; // ms
+const LOAD_TIMEOUT = 30000; // 30s
 
 export function useVideoList() {
-  const { status, sort, search, page } = useVideoListContext();
+  const { status, sort, search, page, initialized } = useVideoListContext();
   const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const [timeoutError, setTimeoutError] = useState(false);
 
   // -----------------------------
-  // Debounce search input
+  // Debounce search
   // -----------------------------
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -23,15 +25,45 @@ export function useVideoList() {
   }, [search]);
 
   // -----------------------------
-  // Fetch + Polling
+  // Fetch + Smart polling
   // -----------------------------
   const query = useQuery<{ data: Video[] }, Error>({
     queryKey: ["videos", "list"],
     queryFn: fetchVideos,
+    enabled: initialized,
+
     staleTime: 5000,
-    refetchInterval: 5000, // polling mỗi 5s
-    refetchIntervalInBackground: true,
+
+    refetchInterval: (query) => {
+      const videos = query.state.data?.data;
+      if (!videos) return false;
+
+      const hasInProgress = videos.some(
+        (v) => v.status === "Pending" || v.status === "Processing"
+      );
+
+      return hasInProgress ? 5000 : false;
+    },
+
+    retry: 2,
+    retryDelay: 2000,
   });
+
+  // -----------------------------
+  // 30s loading timeout guard
+  // -----------------------------
+  useEffect(() => {
+    if (!query.isLoading) {
+      setTimeoutError(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setTimeoutError(true);
+    }, LOAD_TIMEOUT);
+
+    return () => clearTimeout(timer);
+  }, [query.isLoading]);
 
   // -----------------------------
   // Filter + Search + Sort
@@ -41,7 +73,6 @@ export function useVideoList() {
 
     let result = [...query.data.data];
 
-    // Filter by status
     if (status !== "All") {
       result = result.filter((v) => v.status === status);
     }
@@ -55,7 +86,6 @@ export function useVideoList() {
       });
     }
 
-    // Sort by createdAt
     result.sort((a, b) =>
       sort === "oldest"
         ? new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -81,6 +111,7 @@ export function useVideoList() {
     total: filteredVideos.length,
     pageSize: PAGE_SIZE,
     loading: query.isLoading,
+    timeoutError,
     refetch: query.refetch,
   };
 }
