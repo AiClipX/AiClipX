@@ -83,3 +83,6 @@ export const getVideoById = async (id: string): Promise<Video | null> => {
     return null;
   }
 };
+export async function deleteVideoTask(id: string) {
+  return axios.delete(`${API_URL}/${id}`);
+}
