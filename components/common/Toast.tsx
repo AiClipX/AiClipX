@@ -4,7 +4,6 @@ let root: ReturnType<typeof createRoot> | null = null;
 let container: HTMLDivElement | null = null;
 
 export function showToast(message: string, duration = 1000) {
-  // tạo container nếu chưa có
   if (!container) {
     container = document.createElement("div");
     container.style.position = "fixed";
@@ -33,7 +32,6 @@ export function showToast(message: string, duration = 1000) {
     </div>
   );
 
-  // tự tắt sau duration (1s)
   setTimeout(() => {
     root?.unmount();
     root = null;

@@ -9,11 +9,11 @@ export function CreateVideoModal({ open, onClose, onCreated }: any) {
 
   if (!open) return null;
   const handleSubmit = () => {
-    // reset form NGAY khi submit
+    // reset form  submit
     setTitle("");
     setPrompt("");
 
-    // toast thông báo (1s)
+    // toast (1s)
     showToast("Video is being created, please wait…", 1000);
 
     mutate(
@@ -23,7 +23,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: any) {
       },
       {
         onSuccess: () => {
-          onCreated?.(); // refresh list khi backend OK
+          onCreated?.(); // refresh list
         },
         onError: () => {
           showToast("Create video failed", 1500);
@@ -31,7 +31,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: any) {
       }
     );
 
-    onClose(); // đóng modal sau khi submit
+    onClose();
   };
 
   return (
