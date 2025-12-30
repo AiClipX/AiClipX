@@ -54,10 +54,9 @@ export function VideoListContainer() {
           value={status}
           onChange={(v) => {
             setStatus(v);
-            cursorPagination.reset(); // optional, nhưng useEffect đã làm rồi
+            refetch(); // reload dữ liệu khi filter thay đổi
           }}
         />
-
         <div className="flex items-center gap-2">
           <span>Search:</span>
           <input
@@ -78,7 +77,13 @@ export function VideoListContainer() {
             </span>
           )}
         </div>
-        <SortByDate value={sort} onChange={setSort} />
+        <SortByDate
+          value={sort}
+          onChange={(v) => {
+            setSort(v);
+            refetch(); // reload dữ liệu khi sort thay đổi
+          }}
+        />
       </div>
 
       {/* Timeout */}
