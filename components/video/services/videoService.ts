@@ -8,7 +8,7 @@ const API_URL = `${process.env.NEXT_PUBLIC_API_VIDEO}/api/video-tasks`;
 ===================== */
 
 function parseStatus(status: string): VideoStatus {
-  switch (status.toLowerCase()) {
+  switch (status?.toLowerCase()) {
     case "pending":
       return "Pending";
     case "processing":
@@ -17,32 +17,17 @@ function parseStatus(status: string): VideoStatus {
       return "Completed";
     case "failed":
       return "Failed";
-    case "draft":
-      return "Draft";
     default:
       return "Processing";
   }
 }
 
 function getPlaceholderThumbnail(status: VideoStatus): string {
-  switch (status) {
-    case "Completed":
-      return "https://picsum.photos/400/225?random=3";
-    case "Processing":
-      return "https://picsum.photos/400/225?random=2";
-    case "Failed":
-      return "https://picsum.photos/400/225?random=4";
-    default:
-      return "https://picsum.photos/400/225?random=1";
-  }
+  return `https://picsum.photos/400/225?random=${status}`;
 }
 
-// mock video url for completed videos because the API does not provide real video URLs
 function resolveVideoUrl(status: VideoStatus): string | null {
-  if (status === "Completed") {
-    return "/mock/sample.mp4";
-  }
-  return null;
+  return status === "Completed" ? "/mock/sample.mp4" : null;
 }
 
 function parseVideo(raw: any): Video {
@@ -58,31 +43,39 @@ function parseVideo(raw: any): Video {
     duration: undefined,
     ratio: undefined,
     language: undefined,
-    prompt: "",
+    prompt: raw.prompt || "",
     errorMessage: raw.errorMessage || null,
   };
 }
 
 /* =====================
-   API
+   Cursor API
 ===================== */
 
-export const fetchVideos = async (): Promise<{ data: Video[] }> => {
-  const res = await axios.get(API_URL);
+export async function fetchVideosCursor(params: {
+  limit: number;
+  cursor?: string;
+  sort: "createdAt_desc" | "createdAt_asc";
+}): Promise<{ data: Video[]; nextCursor?: string }> {
+  const res = await axios.get(API_URL, { params });
 
   return {
     data: res.data.data.map(parseVideo),
+    nextCursor: res.data.nextCursor,
   };
-};
-
-export const getVideoById = async (id: string): Promise<Video | null> => {
+}
+export async function getVideoById(id: string): Promise<Video | null> {
   try {
     const res = await axios.get(`${API_URL}/${id}`);
     return parseVideo(res.data);
-  } catch {
-    return null;
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      return null;
+    }
+    throw err;
   }
-};
+}
+
 export async function deleteVideoTask(id: string) {
   return axios.delete(`${API_URL}/${id}`);
 }

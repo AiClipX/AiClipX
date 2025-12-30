@@ -5,6 +5,7 @@ import { Video } from "../../types/videoTypes";
 import { deleteVideoTask } from "../../services/videoService";
 import { ConfirmDeleteModal } from "../../../common/ConfirmDeleteModal";
 import { NotificationModal } from "../../../common/NotificationModal";
+import { showToast } from "../../../common/Toast";
 
 interface Props {
   video: Video;
@@ -32,23 +33,13 @@ export function VideoActions({ video }: Props) {
       setLoading(true);
       await deleteVideoTask(video.id);
 
-      setNotify({
-        open: true,
-        type: "success",
-        title: "Video deleted",
-        message: "You will be redirected to the list.",
-      });
+      showToast("Delete video successful", "success", 1500);
 
       setTimeout(() => {
         router.push("/dashboard/test-video-list");
       }, 1500);
     } catch {
-      setNotify({
-        open: true,
-        type: "error",
-        title: "Delete failed",
-        message: "Something went wrong. Please try again.",
-      });
+      showToast("Delete video failed", "error", 1500);
     } finally {
       setLoading(false);
       setOpen(false);

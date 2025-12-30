@@ -1,15 +1,17 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { VideoStatus } from "../../types/videoTypes";
+import { useRouter } from "next/router";
 
 interface VideoListContextType {
   status: "All" | VideoStatus;
   setStatus: (v: "All" | VideoStatus) => void;
+
   sort: "newest" | "oldest";
   setSort: (v: "newest" | "oldest") => void;
+
   search: string;
   setSearch: (v: string) => void;
-  page: number;
-  setPage: (v: number) => void;
+
   initialized: boolean;
 }
 
@@ -20,10 +22,10 @@ const VideoListContext = createContext<VideoListContextType | undefined>(
 export const VideoListProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  const router = useRouter();
   const [status, setStatus] = useState<"All" | VideoStatus>("All");
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
@@ -33,23 +35,19 @@ export const VideoListProvider: React.FC<{ children: React.ReactNode }> = ({
         const state = JSON.parse(saved);
         if (state.status) setStatus(state.status);
         if (state.sort) setSort(state.sort);
-        if (state.search) setSearch(state.search);
-        if (state.page) setPage(state.page);
-      } catch (err) {
-        console.error("Failed to parse videoListState", err);
-      }
+        if (typeof state.search === "string") setSearch(state.search);
+      } catch {}
     }
     setInitialized(true);
   }, []);
 
   useEffect(() => {
-    if (initialized) {
-      sessionStorage.setItem(
-        "videoListState",
-        JSON.stringify({ status, sort, search, page })
-      );
-    }
-  }, [status, sort, search, page, initialized]);
+    if (!initialized) return;
+    sessionStorage.setItem(
+      "videoListState",
+      JSON.stringify({ status, sort, search })
+    );
+  }, [status, sort, search, initialized]);
 
   return (
     <VideoListContext.Provider
@@ -60,8 +58,6 @@ export const VideoListProvider: React.FC<{ children: React.ReactNode }> = ({
         setSort,
         search,
         setSearch,
-        page,
-        setPage,
         initialized,
       }}
     >
@@ -70,11 +66,11 @@ export const VideoListProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 };
 
-export const useVideoListContext = () => {
+export function useVideoListContext() {
   const context = useContext(VideoListContext);
   if (!context)
     throw new Error(
       "useVideoListContext must be used within VideoListProvider"
     );
   return context;
-};
+}

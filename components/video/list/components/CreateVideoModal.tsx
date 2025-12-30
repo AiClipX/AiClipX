@@ -14,7 +14,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: any) {
     setPrompt("");
 
     // toast (1s)
-    showToast("Video is being created, please wait…", 1000);
+    showToast("Video is being created, please wait…", "success", 1000);
 
     mutate(
       {
@@ -26,7 +26,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: any) {
           onCreated?.(); // refresh list
         },
         onError: () => {
-          showToast("Create video failed", 1500);
+          showToast("Create video failed", "error", 1500);
         },
       }
     );

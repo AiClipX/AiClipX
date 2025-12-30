@@ -1,30 +1,30 @@
+import { useState } from "react";
 import { StatusFilter } from "./components/StatusFilter";
 import { SortByDate } from "./components/SortByDate";
 import { VideoList } from "./components/VideoList";
-import { Pagination } from "./components/Pagination";
 import { LoadingState } from "./components/LoadingState";
 import { EmptyState } from "./components/EmptyState";
-import { useVideoListContext } from "./hooks/VideoListContext";
-import { useVideoList } from "./hooks/useVideoList";
 import { CreateVideoButton } from "./components/CreateVideoButton";
-import { useState } from "react";
 import { CreateVideoModal } from "./components/CreateVideoModal";
 
-export function VideoListContainer() {
-  const {
-    status,
-    setStatus,
-    sort,
-    setSort,
-    search,
-    setSearch,
-    page,
-    setPage,
-    initialized,
-  } = useVideoListContext();
+import { useVideoListContext } from "./hooks/VideoListContext";
+import { useVideoList } from "./hooks/useVideoList";
 
-  const { videos, loading, total, pageSize, refetch, timeoutError } =
-    useVideoList();
+export function VideoListContainer() {
+  const { status, setStatus, sort, setSort, search, setSearch, initialized } =
+    useVideoListContext();
+
+  const {
+    videos,
+    loading,
+    timeoutError,
+    canNext,
+    canPrev,
+    goNext,
+    goPrev,
+    currentPage,
+    refetch,
+  } = useVideoList();
 
   const [openCreate, setOpenCreate] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -36,7 +36,7 @@ export function VideoListContainer() {
       await refetch();
       setLastUpdated(new Date());
     } catch (err) {
-      console.error("Failed to refresh videos", err);
+      console.error(err);
     }
   };
 
@@ -54,55 +54,42 @@ export function VideoListContainer() {
           value={status}
           onChange={(v) => {
             setStatus(v);
-            setPage(1);
+            cursorPagination.reset(); // optional, nhưng useEffect đã làm rồi
           }}
         />
 
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2">
           <span>Search:</span>
           <input
             type="text"
             className="px-2 py-1 rounded text-black"
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setSearch(e.target.value)}
           />
-
           <button
             onClick={handleRefresh}
             className="px-3 py-1 bg-blue-600 rounded text-white text-sm hover:bg-blue-500 transition"
           >
             Refresh
           </button>
-
           {lastUpdated && (
             <span className="text-sm text-neutral-400">
               Last updated: {lastUpdated.toLocaleTimeString()}
             </span>
           )}
         </div>
-
-        <SortByDate
-          value={sort}
-          onChange={(v) => {
-            setSort(v);
-            setPage(1);
-          }}
-        />
+        <SortByDate value={sort} onChange={setSort} />
       </div>
 
-      {/* Timeout message */}
+      {/* Timeout */}
       {timeoutError && (
         <div className="mb-4 p-4 rounded bg-neutral-800 text-neutral-300 text-sm flex items-center justify-between">
           <span>
-            The server is taking longer than expected to respond. It may be
-            waking up.
+            The server is taking longer than expected. It may be waking up.
           </span>
           <button
             onClick={handleRefresh}
-            className="ml-4 px-3 py-1 bg-blue-600 rounded hover:bg-blue-500 transition text-white text-sm"
+            className="ml-4 px-3 py-1 bg-blue-600 rounded hover:bg-blue-500 text-white text-sm"
           >
             Refresh
           </button>
@@ -115,23 +102,34 @@ export function VideoListContainer() {
       {!loading && videos.length > 0 && (
         <>
           <VideoList videos={videos} />
-          <Pagination
-            page={page}
-            pageSize={pageSize}
-            total={total}
-            onPageChange={setPage}
-          />
+
+          {/* Pagination */}
+          <div className="flex justify-center items-center mt-6 gap-4">
+            <button
+              onClick={goPrev}
+              disabled={!canPrev || loading}
+              className="px-3 py-1 bg-neutral-700 rounded disabled:opacity-40"
+            >
+              Prev
+            </button>
+
+            <span className="text-white font-semibold">Page {currentPage}</span>
+
+            <button
+              onClick={goNext}
+              disabled={!canNext || loading}
+              className="px-3 py-1 bg-blue-600 rounded disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
         </>
       )}
 
-      {/* Create Modal */}
       <CreateVideoModal
         open={openCreate}
         onClose={() => setOpenCreate(false)}
-        onCreated={() => {
-          setPage(1);
-          handleRefresh();
-        }}
+        onCreated={handleRefresh}
       />
     </section>
   );

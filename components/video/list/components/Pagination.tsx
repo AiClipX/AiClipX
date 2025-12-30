@@ -7,7 +7,6 @@ interface Props {
 
 export function Pagination({ page, pageSize, total, onPageChange }: Props) {
   const totalPages = Math.ceil(total / pageSize);
-
   if (totalPages <= 1) return null;
 
   return (
@@ -23,7 +22,6 @@ export function Pagination({ page, pageSize, total, onPageChange }: Props) {
       {Array.from({ length: totalPages }).map((_, i) => {
         const pageNumber = i + 1;
         const isActive = pageNumber === page;
-
         return (
           <button
             key={pageNumber}

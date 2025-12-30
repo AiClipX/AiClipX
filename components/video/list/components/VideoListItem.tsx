@@ -5,6 +5,7 @@ import { useVideoListContext } from "../hooks/VideoListContext";
 import { deleteVideoTask } from "../../services/videoService";
 import { ConfirmDeleteModal } from "../../../common/ConfirmDeleteModal";
 import { NotificationModal } from "../../../common/NotificationModal";
+import { showToast } from "../../../common/Toast";
 
 interface Props {
   video: Video;
@@ -12,7 +13,7 @@ interface Props {
 
 export function VideoListItem({ video }: Props) {
   const router = useRouter();
-  const { page, status, sort, search } = useVideoListContext();
+  const { status, sort, search } = useVideoListContext();
 
   const [hovered, setHovered] = useState(false);
   const [openDelete, setOpenDelete] = useState(false);
@@ -50,7 +51,7 @@ export function VideoListItem({ video }: Props) {
 
     sessionStorage.setItem(
       "videoListState",
-      JSON.stringify({ page, status, sort, search })
+      JSON.stringify({ status, sort, search })
     );
 
     router.push(`/dashboard/videos/${video.id}`);
@@ -60,24 +61,13 @@ export function VideoListItem({ video }: Props) {
     try {
       setDeleting(true);
       await deleteVideoTask(video.id);
-
-      setNotify({
-        open: true,
-        type: "success",
-        title: "Video deleted",
-        message: `"${video.title}" has been removed successfully.`,
-      });
+      showToast("Video is being created, please wait…", "success", 1000);
 
       setTimeout(() => {
         window.location.reload(); // MVP
       }, 1500);
     } catch {
-      setNotify({
-        open: true,
-        type: "error",
-        title: "Delete failed",
-        message: "Unable to delete this video. Please try again.",
-      });
+      showToast("Create video failed", "error", 1500);
     } finally {
       setDeleting(false);
       setOpenDelete(false);

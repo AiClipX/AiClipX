@@ -1,162 +1,95 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchVideos } from "../../services/videoService";
-import { useVideoListContext } from "./VideoListContext";
+import { useMemo, useEffect, useState } from "react";
 import { Video } from "../../types/videoTypes";
-import { useMemo, useState, useEffect } from "react";
+import { useVideoListContext } from "./VideoListContext";
+import { useCursorPagination } from "./useCursorPagination";
+import { fetchVideosCursor } from "../../services/videoService";
 
-const PAGE_SIZE = 12;
-const DEBOUNCE_DELAY = 500;
+const PAGE_SIZE = 10;
 const POLLING_INTERVAL = 5000;
-const FIRST_LOAD_TIMEOUT = 30000; // 30s
+const TIMEOUT_MS = 6000;
 
 export function useVideoList() {
-  const { status, sort, search, page, initialized } = useVideoListContext();
+  const { status, sort, search, initialized } = useVideoListContext();
+  const cursorPagination = useCursorPagination<Video>({ pageSize: PAGE_SIZE });
 
-  const [debouncedSearch, setDebouncedSearch] = useState(search);
-
-  /** Force polling after create */
-  const [forcePolling, setForcePolling] = useState(false);
-
-  /** Timeout handling */
   const [timeoutError, setTimeoutError] = useState(false);
-
-  // ----------------------------------
-  // Debounce search
-  // ----------------------------------
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-    }, DEBOUNCE_DELAY);
-
-    return () => clearTimeout(timer);
-  }, [search]);
-
-  // ----------------------------------
-  // Fetch + Smart Polling
-  // ----------------------------------
-  const query = useQuery<{ data: Video[] }, Error>({
-    queryKey: ["videos", "list"],
-    queryFn: fetchVideos,
+  const query = useQuery({
+    queryKey: ["videos", cursorPagination.cursor, sort, status, search],
     enabled: initialized,
+    queryFn: async () => {
+      setTimeoutError(false);
 
-    staleTime: 0,
-
-    refetchInterval: (query) => {
-      const videos = query.state.data?.data;
-
-      // Force polling after create
-      if (forcePolling) return POLLING_INTERVAL;
-
-      // First load: allow polling
-      if (!videos) return POLLING_INTERVAL;
-
-      // Poll only when needed
-      const hasInProgress = videos.some(
-        (v) => v.status === "Pending" || v.status === "Processing"
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT")), TIMEOUT_MS)
       );
 
-      return hasInProgress ? POLLING_INTERVAL : false;
+      return Promise.race([
+        fetchVideosCursor({
+          limit: cursorPagination.limit,
+          cursor: cursorPagination.cursor ?? undefined,
+          sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
+        }),
+        timeoutPromise,
+      ]);
     },
-
-    retry: 2,
-    retryDelay: 2000,
+    refetchInterval: (query) => {
+      const videos = query.state.data?.data;
+      if (!videos) return POLLING_INTERVAL;
+      const hasProcessing = videos.some(
+        (v) => v.status === "Pending" || v.status === "Processing"
+      );
+      return hasProcessing ? POLLING_INTERVAL : false;
+    },
+    retry: false,
   });
+  const { refetch } = query;
 
-  // ----------------------------------
-  // First load timeout (30s)
-  // ----------------------------------
+  // Detect timeout
   useEffect(() => {
-    if (!initialized) return;
-    if (query.data || query.isError) return;
-
-    const timer = setTimeout(() => {
-      if (!query.data) {
-        setTimeoutError(true);
-      }
-    }, FIRST_LOAD_TIMEOUT);
-
-    return () => clearTimeout(timer);
-  }, [initialized, query.data, query.isError]);
-
-  // Clear timeout error when data arrives
-  useEffect(() => {
-    if (query.data) {
-      setTimeoutError(false);
+    if (query.error instanceof Error && query.error.message === "TIMEOUT") {
+      setTimeoutError(true);
     }
+  }, [query.error]);
+
+  // Apply nextCursor
+  useEffect(() => {
+    if (query.data) cursorPagination.applyResponse(query.data);
   }, [query.data]);
 
-  // ----------------------------------
-  // Stop force polling when done
-  // ----------------------------------
+  // Reset cursor on filter/sort/search change
   useEffect(() => {
-    if (!query.data || !forcePolling) return;
+    cursorPagination.reset();
+    refetch(); // fetch lại dữ liệu mới từ backend
+  }, [status, sort, search]);
 
-    const hasInProgress = query.data.data.some(
-      (v) => v.status === "Pending" || v.status === "Processing"
-    );
-
-    if (!hasInProgress) {
-      setForcePolling(false);
-    }
-  }, [query.data, forcePolling]);
-
-  // ----------------------------------
-  // Filter + Search + Sort
-  // ----------------------------------
-  const filteredVideos = useMemo(() => {
+  // FRONTEND FILTER
+  const videos = useMemo(() => {
     if (!query.data) return [];
-
     let result = [...query.data.data];
-
-    if (status !== "All") {
-      result = result.filter((v) => v.status === status);
-    }
-
-    if (debouncedSearch) {
-      const keyword = debouncedSearch.toLowerCase();
-
+    if (status !== "All") result = result.filter((v) => v.status === status);
+    if (search) {
+      const keyword = search.toLowerCase();
       result = result.filter((v) =>
         (v.title ?? "").toLowerCase().includes(keyword)
       );
     }
-
-    result.sort((a, b) =>
-      sort === "oldest"
-        ? new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-
     return result;
-  }, [query.data, status, sort, debouncedSearch]);
+  }, [query.data, status, search]);
 
-  // ----------------------------------
-  // Pagination
-  // ----------------------------------
-  const paginatedVideos = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filteredVideos.slice(start, start + PAGE_SIZE);
-  }, [filteredVideos, page]);
+  // Current page = cursorHistory.length + 1
+  const currentPage = cursorPagination.cursorHistory.length + 1;
 
-  // ----------------------------------
-  // Public API
-  // ----------------------------------
   return {
-    videos: paginatedVideos,
-    total: filteredVideos.length,
-    pageSize: PAGE_SIZE,
-
+    videos,
     loading: query.isLoading,
     error: query.isError,
     timeoutError,
-
-    refetch: async () => {
-      setTimeoutError(false);
-      return query.refetch();
-    },
-
-    startPollingAfterCreate: () => {
-      setForcePolling(true);
-      query.refetch();
-    },
+    canNext: cursorPagination.hasNext,
+    canPrev: cursorPagination.hasPrev,
+    goNext: cursorPagination.goNext,
+    goPrev: cursorPagination.goPrev,
+    currentPage,
+    refetch: query.refetch,
   };
 }

@@ -8,6 +8,7 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "@tanstack/react-query": "^5.90.12",
     "axios": "^1.13.2",
     "classnames": "2.5.1",
