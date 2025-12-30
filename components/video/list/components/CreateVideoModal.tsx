@@ -1,34 +1,20 @@
-import { useState } from "react";
+import { showToast } from "../../../common/Toast";
 import { useCreateVideo } from "../hooks/useCreateVideo";
-import { NotificationModal } from "../../../common/NotificationModal";
+import { useState } from "react";
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
-  onCreated?: () => void;
-}
-
-export function CreateVideoModal({ open, onClose, onCreated }: Props) {
-  const { mutate, isPending } = useCreateVideo();
-
+export function CreateVideoModal({ open, onClose, onCreated }: any) {
+  const { mutate } = useCreateVideo();
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
 
-  const [notify, setNotify] = useState<{
-    open: boolean;
-    type: "success" | "error";
-    title: string;
-    message?: string;
-  }>({
-    open: false,
-    type: "success",
-    title: "",
-  });
-
   if (!open) return null;
-
   const handleSubmit = () => {
-    if (isPending) return;
+    // reset form NGAY khi submit
+    setTitle("");
+    setPrompt("");
+
+    // toast thông báo (1s)
+    showToast("Video is being created, please wait…", 1000);
 
     mutate(
       {
@@ -37,92 +23,52 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
       },
       {
         onSuccess: () => {
-          setNotify({
-            open: true,
-            type: "success",
-            title: "Video created",
-            message: "Your video task has been created successfully.",
-          });
-
-          onCreated?.();
+          onCreated?.(); // refresh list khi backend OK
         },
-        onError: (error: any) => {
-          setNotify({
-            open: true,
-            type: "error",
-            title: "Create failed",
-            message:
-              error?.response?.data?.message ||
-              "Failed to create video. Please try again.",
-          });
+        onError: () => {
+          showToast("Create video failed", 1500);
         },
       }
     );
-  };
 
-  const handleCloseAll = () => {
-    setTitle("");
-    setPrompt("");
-    setNotify({ ...notify, open: false });
-    onClose();
+    onClose(); // đóng modal sau khi submit
   };
 
   return (
-    <>
-      {/* Create modal */}
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-        <div className="bg-neutral-900 rounded-lg p-4 w-full max-w-md text-white">
-          <h2 className="text-lg font-semibold mb-3">Create new video</h2>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="bg-neutral-900 rounded-lg p-4 w-full max-w-md text-white">
+        <h2 className="text-lg font-semibold mb-3">Create new video</h2>
 
-          <div className="flex flex-col gap-2">
-            <input
-              className="px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm"
-              placeholder="Video title (optional)"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              disabled={isPending}
-            />
+        <input
+          className="px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm w-full mb-2"
+          placeholder="Video title (optional)"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
 
-            <textarea
-              className="px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm resize-none"
-              rows={4}
-              placeholder="Prompt / description (optional)"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              disabled={isPending}
-            />
-          </div>
+        <textarea
+          className="px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm w-full"
+          rows={4}
+          placeholder="Prompt (optional)"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+        />
 
-          <div className="flex justify-end gap-2 mt-4">
-            <button
-              className="px-3 py-1 bg-neutral-700 rounded hover:bg-neutral-600 transition"
-              onClick={onClose}
-              disabled={isPending}
-            >
-              Cancel
-            </button>
-
-            <button
-              className="px-3 py-1 bg-blue-600 rounded hover:bg-blue-500 transition disabled:opacity-50"
-              onClick={handleSubmit}
-              disabled={isPending}
-            >
-              {isPending ? "Creating..." : "Create"}
-            </button>
-          </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            className="px-3 py-1 bg-neutral-700 rounded"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className="px-3 py-1 bg-blue-600 rounded"
+            onClick={handleSubmit}
+          >
+            Create
+          </button>
         </div>
       </div>
-
-      {/* Notification modal */}
-      {notify.open && (
-        <NotificationModal
-          open={notify.open}
-          type={notify.type}
-          title={notify.title}
-          message={notify.message}
-          onClose={handleCloseAll}
-        />
-      )}
-    </>
+    </div>
   );
 }
