@@ -34,7 +34,21 @@ def _cleanup_expired():
         logger.info(f"[IDEMP] Cleaned up {len(expired_keys)} expired keys")
 
 
-def check_idempotency(key: str, payload: dict) -> Optional[str]:
+class IdempotencyResult:
+    """Result of idempotency check."""
+
+    def __init__(
+        self,
+        hit: bool = False,
+        task_id: Optional[str] = None,
+        mismatch: bool = False,
+    ):
+        self.hit = hit
+        self.task_id = task_id
+        self.mismatch = mismatch
+
+
+def check_idempotency(key: str, payload: dict) -> IdempotencyResult:
     """
     Check if an idempotency key exists and matches payload.
 
@@ -43,23 +57,26 @@ def check_idempotency(key: str, payload: dict) -> Optional[str]:
         payload: Request body as dict
 
     Returns:
-        task_id if cache hit and payload matches, None otherwise
+        IdempotencyResult with:
+        - hit=True, task_id=X if cache hit and payload matches
+        - hit=False, mismatch=True if key exists but payload differs
+        - hit=False, mismatch=False if key not found (new key)
     """
     _cleanup_expired()
 
     if key not in _idempotency_cache:
         logger.info(f"[IDEMP] Cache miss for key: {key[:8]}...")
-        return None
+        return IdempotencyResult(hit=False, mismatch=False)
 
     cached = _idempotency_cache[key]
     payload_hash = _hash_payload(payload)
 
     if cached["payload_hash"] == payload_hash:
         logger.info(f"[IDEMP] Cache HIT for key: {key[:8]}... → task_id: {cached['task_id']}")
-        return cached["task_id"]
+        return IdempotencyResult(hit=True, task_id=cached["task_id"])
     else:
-        logger.warning(f"[IDEMP] Key exists but payload mismatch: {key[:8]}...")
-        return None
+        logger.warning(f"[IDEMP] CONFLICT: Key {key[:8]}... exists but payload mismatch - rejecting request")
+        return IdempotencyResult(hit=False, mismatch=True)
 
 
 def store_idempotency(key: str, payload: dict, task_id: str):

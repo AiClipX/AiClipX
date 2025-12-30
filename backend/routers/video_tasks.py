@@ -80,14 +80,34 @@ async def get_video_tasks(
     return VideoTaskListResponse(data=tasks, nextCursor=next_cursor)
 
 
-@router.post("", response_model=VideoTask, status_code=201)
+@router.post(
+    "",
+    response_model=VideoTask,
+    status_code=201,
+    responses={
+        201: {"description": "Task created successfully"},
+        409: {
+            "description": "Idempotency-Key already used with different payload",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "IDEMPOTENCY_KEY_CONFLICT",
+                        "message": "Idempotency-Key already used with different payload",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+    },
+)
 async def create_video_task(
     request_body: CreateVideoTaskRequest,
     request: Request,
     idempotency_key: Optional[str] = Header(
         default=None,
         alias="Idempotency-Key",
-        description="Optional key to prevent duplicate task creation (valid for 60 minutes)",
+        description="Optional key to prevent duplicate task creation (valid for 60 minutes). "
+        "If the same key is used with a different payload, returns 409 Conflict.",
     ),
 ) -> VideoTask:
     """
@@ -95,7 +115,8 @@ async def create_video_task(
 
     - **title**: Optional title/description (max 500 chars)
     - **prompt**: Optional prompt for video generation (max 2000 chars)
-    - **Idempotency-Key** header: Optional, prevents duplicate creation for 60 minutes
+    - **Idempotency-Key** header: Optional, prevents duplicate creation for 60 minutes.
+      Same key + same payload = returns existing task. Same key + different payload = 409 Conflict.
 
     Returns the created task with pending status.
     Status will transition: pending -> processing (5s) -> completed (20s)
@@ -107,12 +128,28 @@ async def create_video_task(
     # Check idempotency if key provided
     if idempotency_key:
         payload = {"title": request_body.title, "prompt": request_body.prompt}
-        existing_task_id = check_idempotency(idempotency_key, payload)
+        idemp_result = check_idempotency(idempotency_key, payload)
 
-        if existing_task_id:
-            # Return existing task
-            logger.info(f"[{request_id}] Idempotency hit: returning existing task {existing_task_id}")
-            task = await video_task_service.get_task_by_id(existing_task_id)
+        # Payload mismatch → 409 Conflict
+        if idemp_result.mismatch:
+            logger.warning(
+                f"[{request_id}] Idempotency CONFLICT: key {idempotency_key[:8]}... "
+                "used with different payload - returning 409"
+            )
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "code": "IDEMPOTENCY_KEY_CONFLICT",
+                    "message": "Idempotency-Key already used with different payload",
+                    "requestId": request_id,
+                },
+                headers={"X-Request-Id": request_id},
+            )
+
+        # Cache hit with matching payload → return existing task
+        if idemp_result.hit and idemp_result.task_id:
+            logger.info(f"[{request_id}] Idempotency hit: returning existing task {idemp_result.task_id}")
+            task = await video_task_service.get_task_by_id(idemp_result.task_id)
             if task:
                 task.debug = DebugInfo(requestId=request_id)
                 return task
