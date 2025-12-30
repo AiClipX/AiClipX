@@ -82,6 +82,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
             "code": "INTERNAL_ERROR",
             "message": "An unexpected error occurred",
             "requestId": request_id,
+            "details": {},
         },
         headers={"X-Request-Id": request_id},
     )
@@ -97,6 +98,7 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
             "code": f"HTTP_{exc.status_code}",
             "message": str(exc.detail),
             "requestId": request_id,
+            "details": {},
         },
         headers={"X-Request-Id": request_id},
     )
@@ -105,13 +107,21 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     request_id = getattr(request.state, "request_id", "unknown")
-    logger.warning(f"[{request_id}] Validation error: {exc.errors()}")
+    errors = exc.errors()
+    logger.warning(f"[{request_id}] Validation error: {errors}")
+
+    # Extract first error for human-readable message
+    first_error = errors[0] if errors else {}
+    field = ".".join(str(x) for x in first_error.get("loc", []))
+    msg = first_error.get("msg", "Validation failed")
+
     return JSONResponse(
         status_code=422,
         content={
             "code": "VALIDATION_ERROR",
-            "message": str(exc.errors()),
+            "message": f"{field}: {msg}",
             "requestId": request_id,
+            "details": {"errors": errors},
         },
         headers={"X-Request-Id": request_id},
     )
