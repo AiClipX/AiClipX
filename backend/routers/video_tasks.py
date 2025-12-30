@@ -4,7 +4,7 @@ Video Tasks API Router - Async endpoints with database persistence.
 import asyncio
 import logging
 import time
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -17,6 +17,7 @@ from models.video_task import (
 )
 from services.idempotency import check_idempotency, store_idempotency
 from services.video_task_service import (
+    decode_cursor,
     simulate_task_processing,
     video_task_service,
 )
@@ -28,11 +29,72 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/video-tasks", tags=["Video Tasks"])
 
 
-@router.get("", response_model=VideoTaskListResponse)
+def error_response(
+    status_code: int,
+    code: str,
+    message: str,
+    request_id: str,
+    details: Optional[Dict[str, Any]] = None,
+) -> JSONResponse:
+    """Create unified error response with consistent schema."""
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "code": code,
+            "message": message,
+            "requestId": request_id,
+            "details": details or {},
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
+
+@router.get(
+    "",
+    response_model=VideoTaskListResponse,
+    responses={
+        200: {"description": "List of video tasks with pagination"},
+        400: {
+            "description": "Invalid cursor format",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "INVALID_CURSOR",
+                        "message": "Invalid cursor format: unable to decode",
+                        "requestId": "req_xxx",
+                        "details": {"cursor": "invalid_base64_string"},
+                    }
+                }
+            },
+        },
+        422: {
+            "description": "Validation error (e.g., limit out of range)",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Limit must be between 1 and 100",
+                        "requestId": "req_xxx",
+                        "details": {"limit": 999},
+                    }
+                }
+            },
+        },
+    },
+)
 async def get_video_tasks(
     request: Request,
-    limit: int = Query(default=20, ge=1, le=50, description="Number of tasks to return (max 50)"),
-    cursor: Optional[str] = Query(default=None, description="Opaque cursor for pagination"),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of tasks to return (1-100, default 20)",
+    ),
+    cursor: Optional[str] = Query(
+        default=None,
+        description="Opaque cursor from previous response's nextCursor. "
+        "Encodes (createdAt, id) for stable pagination. Invalid cursor returns 400.",
+    ),
     status: Optional[str] = Query(
         default=None,
         pattern="^(pending|processing|completed|failed)$",
@@ -42,13 +104,19 @@ async def get_video_tasks(
     sort: str = Query(
         default="createdAt_desc",
         pattern="^createdAt_(desc|asc)$",
-        description="Sort order: createdAt_desc or createdAt_asc",
+        description="Sort order: createdAt_desc or createdAt_asc. Uses compound key (createdAt, id) for stability.",
     ),
 ) -> VideoTaskListResponse:
     """
     Get paginated list of video tasks with filtering and sorting.
 
-    - **limit**: Number of tasks (1-50, default 20)
+    **Cursor Pagination:**
+    - `nextCursor` encodes (createdAt, id) as base64 for stable pagination
+    - For `createdAt_desc`: next page returns items where (createdAt, id) < cursor
+    - `nextCursor = null` means no more pages
+
+    **Parameters:**
+    - **limit**: Number of tasks (1-100, default 20)
     - **cursor**: Opaque cursor from previous response's nextCursor
     - **status**: Filter by status (pending|processing|completed|failed)
     - **q**: Search in title (case-insensitive)
@@ -63,6 +131,24 @@ async def get_video_tasks(
         f"limit={limit} cursor={cursor} status={status} q={q} sort={sort}"
     )
 
+    # Validate and decode cursor if provided
+    decoded_cursor = None
+    if cursor:
+        decoded_cursor = decode_cursor(cursor)
+        if decoded_cursor is None:
+            logger.warning(f"[{request_id}] Invalid cursor format: {cursor[:20]}...")
+            return error_response(
+                status_code=400,
+                code="INVALID_CURSOR",
+                message="Invalid cursor format: unable to decode",
+                request_id=request_id,
+                details={"cursor": cursor[:50] if len(cursor) > 50 else cursor},
+            )
+        cursor_time, cursor_id = decoded_cursor
+        logger.info(
+            f"[{request_id}] Cursor decoded: createdAt={cursor_time.isoformat()}, id={cursor_id}"
+        )
+
     tasks, next_cursor = await video_task_service.get_tasks(
         limit=limit,
         cursor=cursor,
@@ -73,8 +159,18 @@ async def get_video_tasks(
 
     # Calculate latency
     latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+    # Log query boundary info
+    if tasks:
+        first_task = tasks[0]
+        last_task = tasks[-1]
+        logger.info(
+            f"[{request_id}] Query boundary: first=(createdAt={first_task.createdAt.isoformat()}, id={first_task.id}), "
+            f"last=(createdAt={last_task.createdAt.isoformat()}, id={last_task.id})"
+        )
+
     logger.info(
-        f"[{request_id}] Fetched {len(tasks)} tasks, nextCursor={next_cursor}, latency={latency_ms}ms"
+        f"[{request_id}] Fetched {len(tasks)} tasks, nextCursor={next_cursor is not None}, latency={latency_ms}ms"
     )
 
     return VideoTaskListResponse(data=tasks, nextCursor=next_cursor)
@@ -136,14 +232,12 @@ async def create_video_task(
                 f"[{request_id}] Idempotency CONFLICT: key {idempotency_key[:8]}... "
                 "used with different payload - returning 409"
             )
-            return JSONResponse(
+            return error_response(
                 status_code=409,
-                content={
-                    "code": "IDEMPOTENCY_KEY_CONFLICT",
-                    "message": "Idempotency-Key already used with different payload",
-                    "requestId": request_id,
-                },
-                headers={"X-Request-Id": request_id},
+                code="IDEMPOTENCY_KEY_CONFLICT",
+                message="Idempotency-Key already used with different payload",
+                request_id=request_id,
+                details={"idempotencyKey": idempotency_key[:16] + "..."},
             )
 
         # Cache hit with matching payload → return existing task
@@ -195,14 +289,12 @@ async def get_video_task(task_id: str, request: Request) -> VideoTask:
 
     if not task:
         logger.info(f"[{request_id}] Task not found: {task_id}")
-        return JSONResponse(
+        return error_response(
             status_code=404,
-            content={
-                "code": "NOT_FOUND",
-                "message": "Video task not found",
-                "requestId": request_id,
-            },
-            headers={"X-Request-Id": request_id},
+            code="NOT_FOUND",
+            message="Video task not found",
+            request_id=request_id,
+            details={"taskId": task_id},
         )
 
     # Inject debug info
@@ -234,14 +326,12 @@ async def delete_video_task(task_id: str, request: Request):
     task = await video_task_service.get_task_by_id(task_id)
     if not task:
         logger.info(f"[{request_id}] Task not found: {task_id}")
-        return JSONResponse(
+        return error_response(
             status_code=404,
-            content={
-                "code": "NOT_FOUND",
-                "message": "Video task not found",
-                "requestId": request_id,
-            },
-            headers={"X-Request-Id": request_id},
+            code="NOT_FOUND",
+            message="Video task not found",
+            request_id=request_id,
+            details={"taskId": task_id},
         )
 
     # Delete task
