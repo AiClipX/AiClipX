@@ -54,13 +54,7 @@ export function VideoListContainer() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
-        <StatusFilter
-          value={status}
-          onChange={(v) => {
-            setStatus(v);
-            refetch();
-          }}
-        />
+        <StatusFilter value={status} onChange={setStatus} />
 
         <div className="flex items-center gap-2">
           <span>Search:</span>

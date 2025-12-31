@@ -7,7 +7,7 @@ import { Video } from "../../types/videoTypes";
    CONFIG
 ===================== */
 const LIMIT = 12;
-const SEARCH_DEBOUNCE_MS = 400;
+const SEARCH_DEBOUNCE_MS = 1000;
 const MAX_ITEMS = 300;
 const MAX_REQUESTS = 10;
 
@@ -91,37 +91,18 @@ export function useVideoList() {
   }, [search]);
 
   /* =====================
-     RESET ON STATUS / SORT
-  ===================== */
-  useEffect(() => {
-    pagination.reset();
-    setCurrentPage(1);
-    setVideos([]);
-    fetchPage(null, true);
-  }, [status, sort]);
-
-  /* =====================
-     EXIT SEARCH → RESTORE NORMAL MODE
-  ===================== */
-  useEffect(() => {
-    if (debouncedSearch !== "") return;
-
-    // reset search-only states
-    searchCursorRef.current = null;
-    searchRequestRef.current = 0;
-    setIsCapped(false);
-
-    // restore normal pagination
-    pagination.reset();
-    setCurrentPage(1);
-    setVideos([]);
-    fetchPage(null, true);
-  }, [debouncedSearch]);
-
-  /* =====================
      FETCH NORMAL PAGE
+     chỉ chạy khi không search
   ===================== */
-  const fetchPage = async (cursor: string | null, replace = false) => {
+  useEffect(() => {
+    if (debouncedSearch) return;
+
+    pagination.reset();
+    setCurrentPage(1);
+    fetchPage(null, true);
+  }, [status, sort, debouncedSearch]);
+
+  const fetchPage = async (cursor: string | null, replace = true) => {
     setLoading(true);
     setTimeoutError(false);
 
@@ -134,13 +115,12 @@ export function useVideoList() {
 
       pagination.push(res.nextCursor);
 
-      setVideos((prev) => {
-        if (replace) return res.data;
+      let newVideos = res.data;
+      if (status !== "All") {
+        newVideos = newVideos.filter((v) => v.status === status);
+      }
 
-        const map = new Map(prev.map((v) => [v.id, v]));
-        res.data.forEach((v) => map.set(v.id, v));
-        return Array.from(map.values());
-      });
+      setVideos(newVideos);
     } catch (err) {
       console.error(err);
       setTimeoutError(true);
@@ -159,7 +139,6 @@ export function useVideoList() {
 
     const runSearch = async () => {
       setLoading(true);
-      setVideos([]);
       setIsCapped(false);
 
       let collected: Video[] = [];
@@ -180,7 +159,6 @@ export function useVideoList() {
         collected.push(...res.data);
         cursor = res.nextCursor ?? null;
         requests++;
-
         if (!cursor) break;
       }
 
@@ -190,11 +168,13 @@ export function useVideoList() {
 
       const keyword = debouncedSearch.toLowerCase();
       setVideos(
-        collected.filter(
-          (v) =>
-            v.title?.toLowerCase().includes(keyword) ||
-            v.id.toLowerCase().includes(keyword)
-        )
+        collected
+          .filter((v) => status === "All" || v.status === status)
+          .filter(
+            (v) =>
+              v.title?.toLowerCase().includes(keyword) ||
+              v.id.toLowerCase().includes(keyword)
+          )
       );
 
       searchCursorRef.current = cursor;
@@ -229,7 +209,10 @@ export function useVideoList() {
     setVideos((prev) => {
       const map = new Map(prev.map((v) => [v.id, v]));
       res.data.forEach((v) => map.set(v.id, v));
-      return Array.from(map.values());
+
+      return Array.from(map.values()).filter(
+        (v) => status === "All" || v.status === status
+      );
     });
 
     setLoading(false);
@@ -267,7 +250,6 @@ export function useVideoList() {
     goPrev,
     refetch: () => fetchPage(null, true),
 
-    // SEARCH UX
     isCapped,
     loadMoreResults,
   };

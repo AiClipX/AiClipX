@@ -9,8 +9,8 @@ const API_URL = `${process.env.NEXT_PUBLIC_API_VIDEO}/api/video-tasks`;
 
 function parseStatus(status: string): VideoStatus {
   switch (status?.toLowerCase()) {
-    case "pending":
-      return "Pending";
+    case "queued":
+      return "Queued";
     case "processing":
       return "Processing";
     case "completed":

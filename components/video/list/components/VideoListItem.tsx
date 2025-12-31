@@ -32,12 +32,12 @@ export function VideoListItem({ video }: Props) {
     title: "",
   });
   const isDeleteDisabled =
-    video.status === "Processing" || video.status === "Pending";
+    video.status === "Processing" || video.status === "Queued";
 
   const handleClick = () => {
     if (video.status === "Failed") return;
 
-    if (video.status === "Processing" || video.status === "Pending") {
+    if (video.status === "Processing" || video.status === "Queued") {
       alert(
         `Video is still ${video.status}. It will be available when completed.`
       );
@@ -112,8 +112,7 @@ export function VideoListItem({ video }: Props) {
                 />
               )}
 
-              {(video.status === "Processing" ||
-                video.status === "Pending") && (
+              {(video.status === "Processing" || video.status === "Queued") && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-yellow-400 font-semibold">
                   {statusConfig.label}
                 </div>

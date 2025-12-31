@@ -16,7 +16,7 @@ export function VideoActions({ video }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const disabled = video.status === "Processing" || video.status === "Pending";
+  const disabled = video.status === "Processing" || video.status === "Queued";
   const [notify, setNotify] = useState<{
     open: boolean;
     type: "success" | "error";

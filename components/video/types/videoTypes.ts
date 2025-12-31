@@ -3,7 +3,7 @@ export type VideoStatus =
   | "Processing"
   | "Completed"
   | "Failed"
-  | "Pending";
+  | "Queued";
 
 export interface Video {
   id: string;
@@ -27,7 +27,7 @@ export const VIDEO_STATUS_CONFIG: Record<
     label: "Draft",
     className: "text-gray-600",
   },
-  Pending: {
+  Queued: {
     label: "Waiting",
     className: "text-gray-400",
   },
