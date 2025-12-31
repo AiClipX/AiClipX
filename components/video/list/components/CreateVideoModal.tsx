@@ -1,21 +1,21 @@
+import { useState } from "react";
 import { showToast } from "../../../common/Toast";
 import { useCreateVideo } from "../hooks/useCreateVideo";
-import { useState } from "react";
 
-export function CreateVideoModal({ open, onClose, onCreated }: any) {
-  const { mutate } = useCreateVideo();
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  onCreated?: () => void;
+};
+
+export function CreateVideoModal({ open, onClose, onCreated }: Props) {
+  const { mutate, isPending } = useCreateVideo();
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
 
   if (!open) return null;
+
   const handleSubmit = () => {
-    // reset form  submit
-    setTitle("");
-    setPrompt("");
-
-    // toast (1s)
-    showToast("Video is being created, please wait…", "success", 1000);
-
     mutate(
       {
         title: title || undefined,
@@ -23,15 +23,21 @@ export function CreateVideoModal({ open, onClose, onCreated }: any) {
       },
       {
         onSuccess: () => {
+          showToast("Video is being created, please wait…", "success", 1200);
+
+          // reset form sau khi success
+          setTitle("");
+          setPrompt("");
+
           onCreated?.(); // refresh list
+          onClose(); // đóng modal sau khi chắc chắn OK
         },
         onError: () => {
           showToast("Create video failed", "error", 1500);
+          // ❗ KHÔNG đóng modal
         },
       }
     );
-
-    onClose();
   };
 
   return (
@@ -44,6 +50,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: any) {
           placeholder="Video title (optional)"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          disabled={isPending}
         />
 
         <textarea
@@ -52,20 +59,24 @@ export function CreateVideoModal({ open, onClose, onCreated }: any) {
           placeholder="Prompt (optional)"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          disabled={isPending}
         />
 
         <div className="flex justify-end gap-2 mt-4">
           <button
             className="px-3 py-1 bg-neutral-700 rounded"
             onClick={onClose}
+            disabled={isPending}
           >
             Cancel
           </button>
+
           <button
-            className="px-3 py-1 bg-blue-600 rounded"
+            className="px-3 py-1 bg-blue-600 rounded disabled:opacity-50"
             onClick={handleSubmit}
+            disabled={isPending}
           >
-            Create
+            {isPending ? "Creating..." : "Create"}
           </button>
         </div>
       </div>

@@ -1,95 +1,274 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useEffect, useState } from "react";
-import { Video } from "../../types/videoTypes";
+import { useEffect, useRef, useState } from "react";
 import { useVideoListContext } from "./VideoListContext";
-import { useCursorPagination } from "./useCursorPagination";
 import { fetchVideosCursor } from "../../services/videoService";
+import { Video } from "../../types/videoTypes";
 
-const PAGE_SIZE = 10;
-const POLLING_INTERVAL = 5000;
-const TIMEOUT_MS = 6000;
+/* =====================
+   CONFIG
+===================== */
+const LIMIT = 12;
+const SEARCH_DEBOUNCE_MS = 400;
+const MAX_ITEMS = 300;
+const MAX_REQUESTS = 10;
 
-export function useVideoList() {
-  const { status, sort, search, initialized } = useVideoListContext();
-  const cursorPagination = useCursorPagination<Video>({ pageSize: PAGE_SIZE });
+/* =====================
+   SORT MAPPER
+===================== */
+function resolveSort(sort: "newest" | "oldest") {
+  return sort === "oldest" ? "createdAt_asc" : "createdAt_desc";
+}
 
-  const [timeoutError, setTimeoutError] = useState(false);
-  const query = useQuery({
-    queryKey: ["videos", cursorPagination.cursor, sort, status, search],
-    enabled: initialized,
-    queryFn: async () => {
-      setTimeoutError(false);
-
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("TIMEOUT")), TIMEOUT_MS)
-      );
-
-      return Promise.race([
-        fetchVideosCursor({
-          limit: cursorPagination.limit,
-          cursor: cursorPagination.cursor ?? undefined,
-          sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
-        }),
-        timeoutPromise,
-      ]);
-    },
-    refetchInterval: (query) => {
-      const videos = query.state.data?.data;
-      if (!videos) return POLLING_INTERVAL;
-      const hasProcessing = videos.some(
-        (v) => v.status === "Pending" || v.status === "Processing"
-      );
-      return hasProcessing ? POLLING_INTERVAL : false;
-    },
-    retry: false,
-  });
-  const { refetch } = query;
-
-  // Detect timeout
-  useEffect(() => {
-    if (query.error instanceof Error && query.error.message === "TIMEOUT") {
-      setTimeoutError(true);
-    }
-  }, [query.error]);
-
-  // Apply nextCursor
-  useEffect(() => {
-    if (query.data) cursorPagination.applyResponse(query.data);
-  }, [query.data]);
-
-  // Reset cursor on filter/sort/search change
-  useEffect(() => {
-    cursorPagination.reset();
-    refetch(); // fetch lại dữ liệu mới từ backend
-  }, [status, sort, search]);
-
-  // FRONTEND FILTER
-  const videos = useMemo(() => {
-    if (!query.data) return [];
-    let result = [...query.data.data];
-    if (status !== "All") result = result.filter((v) => v.status === status);
-    if (search) {
-      const keyword = search.toLowerCase();
-      result = result.filter((v) =>
-        (v.title ?? "").toLowerCase().includes(keyword)
-      );
-    }
-    return result;
-  }, [query.data, status, search]);
-
-  // Current page = cursorHistory.length + 1
-  const currentPage = cursorPagination.cursorHistory.length + 1;
+/* =====================
+   CURSOR PAGINATION (NORMAL MODE)
+===================== */
+function useCursorPagination() {
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [stack, setStack] = useState<string[]>([]);
+  const [hasNext, setHasNext] = useState(false);
 
   return {
+    cursor,
+    hasNext,
+    hasPrev: stack.length > 0,
+
+    push(nextCursor?: string) {
+      if (!nextCursor) {
+        setHasNext(false);
+        return;
+      }
+      setStack((s) => [...s, cursor!].filter(Boolean));
+      setCursor(nextCursor);
+      setHasNext(true);
+    },
+
+    pop() {
+      setStack((s) => {
+        const copy = [...s];
+        const prev = copy.pop() ?? null;
+        setCursor(prev);
+        return copy;
+      });
+    },
+
+    reset() {
+      setCursor(null);
+      setStack([]);
+      setHasNext(false);
+    },
+  };
+}
+
+/* =====================
+   MAIN HOOK
+===================== */
+export function useVideoList() {
+  const { status, sort, search } = useVideoListContext();
+
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [timeoutError, setTimeoutError] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const pagination = useCursorPagination();
+
+  /* =====================
+     SEARCH STATE
+  ===================== */
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const searchCursorRef = useRef<string | null>(null);
+  const searchRequestRef = useRef(0);
+  const [isCapped, setIsCapped] = useState(false);
+
+  /* =====================
+     SEARCH DEBOUNCE
+  ===================== */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(t);
+  }, [search]);
+
+  /* =====================
+     RESET ON STATUS / SORT
+  ===================== */
+  useEffect(() => {
+    pagination.reset();
+    setCurrentPage(1);
+    setVideos([]);
+    fetchPage(null, true);
+  }, [status, sort]);
+
+  /* =====================
+     EXIT SEARCH → RESTORE NORMAL MODE
+  ===================== */
+  useEffect(() => {
+    if (debouncedSearch !== "") return;
+
+    // reset search-only states
+    searchCursorRef.current = null;
+    searchRequestRef.current = 0;
+    setIsCapped(false);
+
+    // restore normal pagination
+    pagination.reset();
+    setCurrentPage(1);
+    setVideos([]);
+    fetchPage(null, true);
+  }, [debouncedSearch]);
+
+  /* =====================
+     FETCH NORMAL PAGE
+  ===================== */
+  const fetchPage = async (cursor: string | null, replace = false) => {
+    setLoading(true);
+    setTimeoutError(false);
+
+    try {
+      const res = await fetchVideosCursor({
+        limit: LIMIT,
+        cursor: cursor ?? undefined,
+        sort: resolveSort(sort),
+      });
+
+      pagination.push(res.nextCursor);
+
+      setVideos((prev) => {
+        if (replace) return res.data;
+
+        const map = new Map(prev.map((v) => [v.id, v]));
+        res.data.forEach((v) => map.set(v.id, v));
+        return Array.from(map.values());
+      });
+    } catch (err) {
+      console.error(err);
+      setTimeoutError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* =====================
+     SEARCH MODE (FULL DATASET)
+  ===================== */
+  useEffect(() => {
+    if (!debouncedSearch) return;
+
+    let cancelled = false;
+
+    const runSearch = async () => {
+      setLoading(true);
+      setVideos([]);
+      setIsCapped(false);
+
+      let collected: Video[] = [];
+      let cursor: string | null = null;
+      let requests = 0;
+
+      while (
+        !cancelled &&
+        collected.length < MAX_ITEMS &&
+        requests < MAX_REQUESTS
+      ) {
+        const res = await fetchVideosCursor({
+          limit: LIMIT,
+          cursor: cursor ?? undefined,
+          sort: resolveSort(sort),
+        });
+
+        collected.push(...res.data);
+        cursor = res.nextCursor ?? null;
+        requests++;
+
+        if (!cursor) break;
+      }
+
+      if (cancelled) return;
+
+      if (cursor) setIsCapped(true);
+
+      const keyword = debouncedSearch.toLowerCase();
+      setVideos(
+        collected.filter(
+          (v) =>
+            v.title?.toLowerCase().includes(keyword) ||
+            v.id.toLowerCase().includes(keyword)
+        )
+      );
+
+      searchCursorRef.current = cursor;
+      searchRequestRef.current = requests;
+      setLoading(false);
+    };
+
+    runSearch();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, status, sort]);
+
+  /* =====================
+     LOAD MORE SEARCH RESULTS
+  ===================== */
+  const loadMoreResults = async () => {
+    if (!searchCursorRef.current) return;
+
+    setLoading(true);
+
+    const res = await fetchVideosCursor({
+      limit: LIMIT,
+      cursor: searchCursorRef.current,
+      sort: resolveSort(sort),
+    });
+
+    searchCursorRef.current = res.nextCursor ?? null;
+    if (!searchCursorRef.current) setIsCapped(false);
+
+    setVideos((prev) => {
+      const map = new Map(prev.map((v) => [v.id, v]));
+      res.data.forEach((v) => map.set(v.id, v));
+      return Array.from(map.values());
+    });
+
+    setLoading(false);
+  };
+
+  /* =====================
+     PAGINATION ACTIONS
+  ===================== */
+  const goNext = () => {
+    if (debouncedSearch || !pagination.hasNext) return;
+    setCurrentPage((p) => p + 1);
+    fetchPage(pagination.cursor);
+  };
+
+  const goPrev = () => {
+    if (debouncedSearch || !pagination.hasPrev) return;
+    setCurrentPage((p) => Math.max(1, p - 1));
+    pagination.pop();
+    fetchPage(pagination.cursor, true);
+  };
+
+  /* =====================
+     PUBLIC API
+  ===================== */
+  return {
     videos,
-    loading: query.isLoading,
-    error: query.isError,
+    loading,
     timeoutError,
-    canNext: cursorPagination.hasNext,
-    canPrev: cursorPagination.hasPrev,
-    goNext: cursorPagination.goNext,
-    goPrev: cursorPagination.goPrev,
     currentPage,
-    refetch: query.refetch,
+
+    canNext: !debouncedSearch && pagination.hasNext,
+    canPrev: !debouncedSearch && pagination.hasPrev,
+
+    goNext,
+    goPrev,
+    refetch: () => fetchPage(null, true),
+
+    // SEARCH UX
+    isCapped,
+    loadMoreResults,
   };
 }

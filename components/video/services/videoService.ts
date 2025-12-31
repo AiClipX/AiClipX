@@ -49,21 +49,46 @@ function parseVideo(raw: any): Video {
 }
 
 /* =====================
-   Cursor API
+   Cursor param sanitizer (FIX 422)
 ===================== */
 
+function buildCursorParams(params: {
+  limit: number;
+  cursor?: string;
+  sort: "createdAt_desc" | "createdAt_asc";
+}) {
+  const clean: Record<string, any> = {
+    limit: params.limit,
+    sort: params.sort,
+  };
+
+  // ⚠️ cursor chỉ gửi khi thật sự tồn tại
+  if (params.cursor) {
+    clean.cursor = params.cursor;
+  }
+
+  return clean;
+}
+
+/* =====================
+   Cursor API
+===================== */
 export async function fetchVideosCursor(params: {
   limit: number;
   cursor?: string;
   sort: "createdAt_desc" | "createdAt_asc";
+  status?: string; // ✅ THÊM DÒNG NÀY
 }): Promise<{ data: Video[]; nextCursor?: string }> {
-  const res = await axios.get(API_URL, { params });
+  const res = await axios.get(API_URL, {
+    params: buildCursorParams(params), // ✅ FIX
+  });
 
   return {
     data: res.data.data.map(parseVideo),
     nextCursor: res.data.nextCursor,
   };
 }
+
 export async function getVideoById(id: string): Promise<Video | null> {
   try {
     const res = await axios.get(`${API_URL}/${id}`);

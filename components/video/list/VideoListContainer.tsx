@@ -24,6 +24,10 @@ export function VideoListContainer() {
     goPrev,
     currentPage,
     refetch,
+
+    // NEW from hook
+    isCapped,
+    loadMoreResults,
   } = useVideoList();
 
   const [openCreate, setOpenCreate] = useState(false);
@@ -54,9 +58,10 @@ export function VideoListContainer() {
           value={status}
           onChange={(v) => {
             setStatus(v);
-            refetch(); // reload dữ liệu khi filter thay đổi
+            refetch();
           }}
         />
+
         <div className="flex items-center gap-2">
           <span>Search:</span>
           <input
@@ -77,11 +82,12 @@ export function VideoListContainer() {
             </span>
           )}
         </div>
+
         <SortByDate
           value={sort}
           onChange={(v) => {
             setSort(v);
-            refetch(); // reload dữ liệu khi sort thay đổi
+            refetch();
           }}
         />
       </div>
@@ -104,11 +110,25 @@ export function VideoListContainer() {
       {/* Content */}
       {loading && !timeoutError && <LoadingState />}
       {!loading && videos.length === 0 && <EmptyState />}
+
       {!loading && videos.length > 0 && (
         <>
           <VideoList videos={videos} />
 
-          {/* Pagination */}
+          {/* SEARCH CAP HINT */}
+          {isCapped && (
+            <div className="mt-4 text-sm text-neutral-400 flex items-center gap-2">
+              <span>Results may be partial.</span>
+              <button
+                onClick={loadMoreResults}
+                className="underline text-blue-400"
+              >
+                Load more…
+              </button>
+            </div>
+          )}
+
+          {/* Pagination (disabled during search) */}
           <div className="flex justify-center items-center mt-6 gap-4">
             <button
               onClick={goPrev}
