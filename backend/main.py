@@ -36,10 +36,16 @@ VERSION = "0.5.0"
 
 app = FastAPI(title="AiClipX", version=VERSION, lifespan=lifespan)
 
-# Request ID middleware
+# Request ID middleware (BE-STG8: reuse client's X-Request-Id if provided)
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        request_id = f"req_{uuid4().hex[:8]}"
+        # Reuse client's X-Request-Id if provided, otherwise generate new one
+        client_request_id = request.headers.get("X-Request-Id")
+        if client_request_id and len(client_request_id) <= 64:
+            request_id = client_request_id
+        else:
+            request_id = f"req_{uuid4().hex[:8]}"
+
         request.state.request_id = request_id
         logger.info(f"[{request_id}] {request.method} {request.url.path}")
 

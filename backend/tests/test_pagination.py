@@ -186,10 +186,10 @@ class TestSearchAPI:
         """Search q should match title case-insensitively."""
         import requests
 
-        # Create task with known title
+        # Create task with known title (BE-STG8: title and prompt required)
         create_resp = requests.post(
             f"{api_url}/api/video-tasks",
-            json={"title": "UniqueSearchTest123"},
+            json={"title": "UniqueSearchTest123", "prompt": "test prompt", "engine": "runway"},
             timeout=60
         )
         assert create_resp.status_code == 201
@@ -209,9 +209,10 @@ class TestSearchAPI:
         """Search q should match id exactly."""
         import requests
 
+        # BE-STG8: title and prompt required
         create_resp = requests.post(
             f"{api_url}/api/video-tasks",
-            json={"title": "ID Search Test"},
+            json={"title": "ID Search Test", "prompt": "test prompt", "engine": "runway"},
             timeout=60
         )
         assert create_resp.status_code == 201

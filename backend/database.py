@@ -50,6 +50,49 @@ BEGIN
 END $$;
 """
 
+# Migration: BE-STG8 - Add source_image_url, engine, params columns
+ADD_STG8_COLUMNS_SQL = """
+DO $$
+BEGIN
+    -- Add source_image_url column
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'video_tasks' AND column_name = 'source_image_url'
+    ) THEN
+        ALTER TABLE video_tasks ADD COLUMN source_image_url TEXT;
+    END IF;
+
+    -- Add engine column
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'video_tasks' AND column_name = 'engine'
+    ) THEN
+        ALTER TABLE video_tasks ADD COLUMN engine VARCHAR(20) DEFAULT 'mock';
+    END IF;
+
+    -- Add params column (JSONB)
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'video_tasks' AND column_name = 'params'
+    ) THEN
+        ALTER TABLE video_tasks ADD COLUMN params JSONB;
+    END IF;
+
+    -- Add progress column
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'video_tasks' AND column_name = 'progress'
+    ) THEN
+        ALTER TABLE video_tasks ADD COLUMN progress INTEGER DEFAULT 0;
+    END IF;
+END $$;
+"""
+
+# Migration: Rename pending -> queued
+MIGRATE_PENDING_TO_QUEUED_SQL = """
+UPDATE video_tasks SET status = 'queued' WHERE status = 'pending';
+"""
+
 
 async def init_db():
     """Initialize database connection and create tables if needed."""
@@ -66,6 +109,8 @@ async def init_db():
     # Run migrations
     logger.info("Running migrations...")
     await database.execute(ADD_PROMPT_COLUMN_SQL)
+    await database.execute(ADD_STG8_COLUMNS_SQL)
+    await database.execute(MIGRATE_PENDING_TO_QUEUED_SQL)
     logger.info("Database tables ready")
 
 

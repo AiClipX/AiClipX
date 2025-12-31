@@ -12,8 +12,10 @@ from fastapi.responses import JSONResponse
 from models.video_task import (
     CreateVideoTaskRequest,
     DebugInfo,
+    UpdateStatusRequest,
     VideoTask,
     VideoTaskListResponse,
+    VideoEngine,
 )
 from services.idempotency import check_idempotency, store_idempotency
 from services.video_task_service import (
@@ -250,6 +252,18 @@ async def get_video_tasks(
                 }
             },
         },
+        422: {
+            "description": "Validation error (missing required fields, invalid engine)",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "body.title: Field required",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
     },
 )
 async def create_video_task(
@@ -263,23 +277,36 @@ async def create_video_task(
     ),
 ) -> VideoTask:
     """
-    Create a new video task.
+    Create a new video task (BE-STG8).
 
-    - **title**: Optional title/description (max 500 chars)
-    - **prompt**: Optional prompt for video generation (max 2000 chars)
+    - **title**: Task title (required, max 500 chars)
+    - **prompt**: Video generation prompt (required, max 2000 chars)
+    - **sourceImageUrl**: Optional source image URL
+    - **engine**: Video engine - "runway" or "mock" (default: mock)
+    - **params**: Optional generation parameters (durationSec, ratio)
     - **Idempotency-Key** header: Optional, prevents duplicate creation for 60 minutes.
-      Same key + same payload = returns existing task. Same key + different payload = 409 Conflict.
 
-    Returns the created task with pending status.
-    Status will transition: pending -> processing (5s) -> completed (20s)
+    Returns the created task with queued status.
+    For engine=mock: auto-transitions queued -> processing (5s) -> completed (20s)
+    For engine=runway: stays queued until PATCH status updates
     """
     request_id = getattr(request.state, "request_id", "unknown")
-    title_log = (request_body.title[:50] + "...") if request_body.title else "(no title)"
-    logger.info(f"[{request_id}] Creating video task: {title_log}")
+
+    # Log payload summary (truncate long prompts)
+    title_log = (request_body.title[:50] + "...") if len(request_body.title) > 50 else request_body.title
+    prompt_log = (request_body.prompt[:30] + "...") if len(request_body.prompt) > 30 else request_body.prompt
+    logger.info(
+        f"[{request_id}] POST /api/video-tasks: "
+        f"title=\"{title_log}\" prompt=\"{prompt_log}\" engine={request_body.engine.value}"
+    )
 
     # Check idempotency if key provided
     if idempotency_key:
-        payload = {"title": request_body.title, "prompt": request_body.prompt}
+        payload = {
+            "title": request_body.title,
+            "prompt": request_body.prompt,
+            "engine": request_body.engine.value,
+        }
         idemp_result = check_idempotency(idempotency_key, payload)
 
         # Payload mismatch → 409 Conflict
@@ -304,26 +331,172 @@ async def create_video_task(
                 task.debug = DebugInfo(requestId=request_id)
                 return task
 
+    # Prepare params dict
+    params_dict = None
+    if request_body.params:
+        params_dict = request_body.params.model_dump()
+
     # Create new task
     task = await video_task_service.create_task(
         title=request_body.title,
         prompt=request_body.prompt,
+        source_image_url=request_body.sourceImageUrl,
+        engine=request_body.engine.value,
+        params=params_dict,
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value}")
 
     # Store idempotency key if provided
     if idempotency_key:
-        payload = {"title": request_body.title, "prompt": request_body.prompt}
+        payload = {
+            "title": request_body.title,
+            "prompt": request_body.prompt,
+            "engine": request_body.engine.value,
+        }
         store_idempotency(idempotency_key, payload, task.id)
 
-    # Schedule background processing simulation using asyncio.create_task
-    asyncio.create_task(simulate_task_processing(task.id, video_task_service))
-    logger.info(f"[{request_id}] Scheduled background processing for task {task.id}")
+    # Schedule background processing only for mock engine
+    if request_body.engine == VideoEngine.mock:
+        asyncio.create_task(simulate_task_processing(task.id, video_task_service))
+        logger.info(f"[{request_id}] Scheduled background processing for task {task.id} (engine=mock)")
 
     # Add debug info
     task.debug = DebugInfo(requestId=request_id)
 
     return task
+
+
+@router.patch(
+    "/{task_id}/status",
+    response_model=VideoTask,
+    responses={
+        200: {"description": "Status updated successfully"},
+        404: {
+            "description": "Task not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "NOT_FOUND",
+                        "message": "Video task not found",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+        409: {
+            "description": "Illegal state transition",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "ILLEGAL_STATE_TRANSITION",
+                        "message": "Cannot transition from completed to processing",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+        422: {
+            "description": "Field constraint violation",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "videoUrl is required for completed status",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+    },
+)
+async def update_task_status(
+    task_id: str,
+    request_body: UpdateStatusRequest,
+    request: Request,
+) -> VideoTask:
+    """
+    Update task status (BE-STG8 PATCH).
+
+    **State machine (strict transitions only):**
+    - queued → processing
+    - queued → failed
+    - processing → completed
+    - processing → failed
+
+    **Field constraints:**
+    - **processing**: videoUrl=null, errorMessage=null, progress 0-99
+    - **completed**: progress=100, videoUrl required, errorMessage=null
+    - **failed**: errorMessage required, videoUrl=null
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(
+        f"[{request_id}] PATCH /api/video-tasks/{task_id}/status: "
+        f"status={request_body.status.value} progress={request_body.progress}"
+    )
+
+    # Get current task
+    task = await video_task_service.get_task_by_id(task_id)
+    if not task:
+        logger.warning(f"[{request_id}] Task not found: {task_id}")
+        return error_response(
+            status_code=404,
+            code="NOT_FOUND",
+            message="Video task not found",
+            request_id=request_id,
+            details={"taskId": task_id},
+        )
+
+    # Validate state transition
+    if not video_task_service.validate_transition(task.status, request_body.status):
+        logger.warning(
+            f"[{request_id}] Illegal transition: {task.status.value} -> {request_body.status.value}"
+        )
+        return error_response(
+            status_code=409,
+            code="ILLEGAL_STATE_TRANSITION",
+            message=f"Cannot transition from {task.status.value} to {request_body.status.value}",
+            request_id=request_id,
+            details={
+                "currentStatus": task.status.value,
+                "requestedStatus": request_body.status.value,
+            },
+        )
+
+    # Validate field constraints
+    constraint_error = video_task_service.validate_status_constraints(
+        request_body.status,
+        request_body.progress,
+        request_body.videoUrl,
+        request_body.errorMessage,
+    )
+    if constraint_error:
+        logger.warning(f"[{request_id}] Constraint violation: {constraint_error}")
+        return error_response(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message=constraint_error,
+            request_id=request_id,
+            details={"status": request_body.status.value},
+        )
+
+    # Update task
+    updated_task = await video_task_service.update_task_status(
+        task_id=task_id,
+        status=request_body.status,
+        progress=request_body.progress,
+        video_url=request_body.videoUrl,
+        error_message=request_body.errorMessage,
+    )
+
+    logger.info(
+        f"[{request_id}] Task {task_id} updated: "
+        f"status={updated_task.status.value} progress={updated_task.progress}"
+    )
+
+    # Add debug info
+    updated_task.debug = DebugInfo(requestId=request_id)
+
+    return updated_task
 
 
 @router.get("/{task_id}", response_model=VideoTask)
