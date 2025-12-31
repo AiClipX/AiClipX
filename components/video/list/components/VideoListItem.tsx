@@ -129,8 +129,8 @@ export function VideoListItem({ video }: Props) {
               {new Date(video.createdAt).toLocaleDateString()}
             </span>
 
-            <span className={`font-semibold ${statusConfig.className}`}>
-              {statusConfig.label}
+            <span className={`font-semibold ${statusConfig?.className}`}>
+              {statusConfig?.label}
             </span>
           </div>
 

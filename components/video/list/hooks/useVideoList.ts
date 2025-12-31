@@ -11,59 +11,6 @@ const SEARCH_DEBOUNCE_MS = 1000;
 const MAX_ITEMS = 300;
 const MAX_REQUESTS = 10;
 
-/* =====================
-   SORT MAPPER
-===================== */
-function resolveSort(sort: "newest" | "oldest") {
-  return sort === "oldest" ? "createdAt_asc" : "createdAt_desc";
-}
-
-/* =====================
-   CURSOR PAGINATION (NORMAL MODE)
-===================== */
-function useCursorPagination() {
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [stack, setStack] = useState<string[]>([]);
-  const [hasNext, setHasNext] = useState(false);
-
-  return {
-    cursor,
-    hasNext,
-    hasPrev: stack.length > 0,
-
-    push(nextCursor?: string) {
-      if (!nextCursor) {
-        setHasNext(false);
-        return;
-      }
-      setStack((s) => [...s, cursor!].filter(Boolean));
-      setCursor(nextCursor);
-      setHasNext(true);
-    },
-
-    pop() {
-      setStack((s) => {
-        const copy = [...s];
-        const prev = copy.pop() ?? null;
-        setCursor(prev);
-        return copy;
-      });
-    },
-
-    reset() {
-      setCursor(null);
-      setStack([]);
-      setHasNext(false);
-    },
-  };
-}
-
-/* =====================
-   MAIN HOOK
-===================== */
-/* =====================
-   MAIN HOOK - FIX PAGINATION
-===================== */
 export function useVideoList() {
   const { status, sort, search } = useVideoListContext();
 
@@ -85,9 +32,23 @@ export function useVideoList() {
      SEARCH DEBOUNCE
   ===================== */
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search.trim()), 1000);
+    const t = setTimeout(
+      () => setDebouncedSearch(search.trim()),
+      SEARCH_DEBOUNCE_MS
+    );
     return () => clearTimeout(t);
   }, [search]);
+
+  /* =====================
+     PREPEND VIDEO MỚI
+  ===================== */
+  const prependVideo = (newVideo: Video) => {
+    if (status === "All" || newVideo.status === status) {
+      setLoading(true);
+      setVideos((prev) => [newVideo, ...prev]);
+      setLoading(false);
+    }
+  };
 
   /* =====================
      FETCH PAGE (NORMAL MODE)
@@ -96,7 +57,7 @@ export function useVideoList() {
     setLoading(true);
     setTimeoutError(false);
 
-    // nếu đã cache → lấy từ cache
+    // Nếu cache page thì dùng cache
     if (pagesCache.current.has(pageIndex)) {
       setVideos(pagesCache.current.get(pageIndex)!);
       setCurrentPage(pageIndex);
@@ -106,7 +67,6 @@ export function useVideoList() {
     }
 
     try {
-      // lấy cursor cuối page trước
       const prevCursor = pageCursors.current.get(pageIndex - 1) ?? null;
 
       const res = await fetchVideosCursor({
@@ -119,7 +79,6 @@ export function useVideoList() {
       if (status !== "All")
         newVideos = newVideos.filter((v) => v.status === status);
 
-      // lưu cache và cursor cuối page
       pagesCache.current.set(pageIndex, newVideos);
       pageCursors.current.set(pageIndex, res.nextCursor ?? null);
 
@@ -165,7 +124,6 @@ export function useVideoList() {
 
     let cancelled = false;
 
-    // reset page khi search mới
     setCurrentPage(1);
     pagesCache.current.clear();
     pageCursors.current.clear();
@@ -258,5 +216,6 @@ export function useVideoList() {
     refetch: () => fetchPage(1),
     isCapped,
     loadMoreResults,
+    prependVideo,
   };
 }

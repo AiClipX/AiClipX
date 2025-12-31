@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { showToast } from "../../../common/Toast";
 import { useCreateVideo } from "../hooks/useCreateVideo";
+import { Video } from "../../types/videoTypes";
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  onCreated?: () => void;
+  onCreated?: (newVideo: Video) => void;
 };
 
 export function CreateVideoModal({ open, onClose, onCreated }: Props) {
@@ -16,25 +17,24 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   if (!open) return null;
 
   const handleSubmit = () => {
-    mutate(
-      {
-        title: title || undefined,
-        prompt: prompt || undefined,
-      },
-      {
-        onSuccess: () => {
-          showToast("Video is being created, please wait…", "success", 1200);
+    // toast ngay khi submit
+    showToast("Video is being created, please wait…", "success", 1000);
 
-          // reset form sau khi success
+    mutate(
+      { title: title || undefined, prompt: prompt || undefined },
+      {
+        onSuccess: (newVideo: Video) => {
+          onCreated?.(newVideo);
+
+          // reset form
           setTitle("");
           setPrompt("");
 
-          onCreated?.(); // refresh list
-          onClose(); // đóng modal sau khi chắc chắn OK
+          onClose();
+          showToast("Video created!", "success", 1200);
         },
         onError: () => {
           showToast("Create video failed", "error", 1500);
-          // ❗ KHÔNG đóng modal
         },
       }
     );

@@ -9,6 +9,7 @@ import { CreateVideoModal } from "./components/CreateVideoModal";
 
 import { useVideoListContext } from "./hooks/VideoListContext";
 import { useVideoList } from "./hooks/useVideoList";
+import { showToast } from "../../common/Toast";
 
 export function VideoListContainer() {
   const { status, setStatus, sort, setSort, search, setSearch, initialized } =
@@ -27,6 +28,7 @@ export function VideoListContainer() {
 
     // NEW from hook
     isCapped,
+    prependVideo,
     loadMoreResults,
   } = useVideoList();
 
@@ -37,7 +39,7 @@ export function VideoListContainer() {
 
   const handleRefresh = async () => {
     try {
-      await refetch();
+      await refetch(); // hook luôn load page 1
       setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
@@ -148,7 +150,7 @@ export function VideoListContainer() {
       <CreateVideoModal
         open={openCreate}
         onClose={() => setOpenCreate(false)}
-        onCreated={handleRefresh}
+        onCreated={(newVideo) => prependVideo(newVideo)} // prependVideo từ hook useVideoList
       />
     </section>
   );
