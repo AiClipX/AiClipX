@@ -61,6 +61,9 @@ function useCursorPagination() {
 /* =====================
    MAIN HOOK
 ===================== */
+/* =====================
+   MAIN HOOK - FIX PAGINATION
+===================== */
 export function useVideoList() {
   const { status, sort, search } = useVideoListContext();
 
@@ -68,12 +71,11 @@ export function useVideoList() {
   const [loading, setLoading] = useState(false);
   const [timeoutError, setTimeoutError] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
 
-  const pagination = useCursorPagination();
+  const pagesCache = useRef<Map<number, Video[]>>(new Map()); // cache theo page index
+  const pageCursors = useRef<Map<number, string | null>>(new Map()); // cursor cuối mỗi page
 
-  /* =====================
-     SEARCH STATE
-  ===================== */
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const searchCursorRef = useRef<string | null>(null);
   const searchRequestRef = useRef(0);
@@ -83,44 +85,47 @@ export function useVideoList() {
      SEARCH DEBOUNCE
   ===================== */
   useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedSearch(search.trim());
-    }, SEARCH_DEBOUNCE_MS);
-
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 1000);
     return () => clearTimeout(t);
   }, [search]);
 
   /* =====================
-     FETCH NORMAL PAGE
-     chỉ chạy khi không search
+     FETCH PAGE (NORMAL MODE)
   ===================== */
-  useEffect(() => {
-    if (debouncedSearch) return;
-
-    pagination.reset();
-    setCurrentPage(1);
-    fetchPage(null, true);
-  }, [status, sort, debouncedSearch]);
-
-  const fetchPage = async (cursor: string | null, replace = true) => {
+  const fetchPage = async (pageIndex: number) => {
     setLoading(true);
     setTimeoutError(false);
 
+    // nếu đã cache → lấy từ cache
+    if (pagesCache.current.has(pageIndex)) {
+      setVideos(pagesCache.current.get(pageIndex)!);
+      setCurrentPage(pageIndex);
+      setHasNext(pageCursors.current.get(pageIndex) != null);
+      setLoading(false);
+      return;
+    }
+
     try {
+      // lấy cursor cuối page trước
+      const prevCursor = pageCursors.current.get(pageIndex - 1) ?? null;
+
       const res = await fetchVideosCursor({
         limit: LIMIT,
-        cursor: cursor ?? undefined,
-        sort: resolveSort(sort),
+        cursor: prevCursor ?? undefined,
+        sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
       });
 
-      pagination.push(res.nextCursor);
-
       let newVideos = res.data;
-      if (status !== "All") {
+      if (status !== "All")
         newVideos = newVideos.filter((v) => v.status === status);
-      }
+
+      // lưu cache và cursor cuối page
+      pagesCache.current.set(pageIndex, newVideos);
+      pageCursors.current.set(pageIndex, res.nextCursor ?? null);
 
       setVideos(newVideos);
+      setCurrentPage(pageIndex);
+      setHasNext(res.nextCursor != null);
     } catch (err) {
       console.error(err);
       setTimeoutError(true);
@@ -130,12 +135,40 @@ export function useVideoList() {
   };
 
   /* =====================
-     SEARCH MODE (FULL DATASET)
+     NAVIGATION
+  ===================== */
+  const goNext = () => {
+    if (debouncedSearch || !hasNext) return;
+    fetchPage(currentPage + 1);
+  };
+
+  const goPrev = () => {
+    if (debouncedSearch || currentPage <= 1) return;
+    fetchPage(currentPage - 1);
+  };
+
+  /* =====================
+     RESET ON STATUS / SORT
+  ===================== */
+  useEffect(() => {
+    if (debouncedSearch) return;
+    pagesCache.current.clear();
+    pageCursors.current.clear();
+    fetchPage(1);
+  }, [status, sort, debouncedSearch]);
+
+  /* =====================
+     SEARCH MODE
   ===================== */
   useEffect(() => {
     if (!debouncedSearch) return;
 
     let cancelled = false;
+
+    // reset page khi search mới
+    setCurrentPage(1);
+    pagesCache.current.clear();
+    pageCursors.current.clear();
 
     const runSearch = async () => {
       setLoading(true);
@@ -153,7 +186,7 @@ export function useVideoList() {
         const res = await fetchVideosCursor({
           limit: LIMIT,
           cursor: cursor ?? undefined,
-          sort: resolveSort(sort),
+          sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
         });
 
         collected.push(...res.data);
@@ -189,18 +222,14 @@ export function useVideoList() {
     };
   }, [debouncedSearch, status, sort]);
 
-  /* =====================
-     LOAD MORE SEARCH RESULTS
-  ===================== */
   const loadMoreResults = async () => {
     if (!searchCursorRef.current) return;
-
     setLoading(true);
 
     const res = await fetchVideosCursor({
       limit: LIMIT,
       cursor: searchCursorRef.current,
-      sort: resolveSort(sort),
+      sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
     });
 
     searchCursorRef.current = res.nextCursor ?? null;
@@ -209,7 +238,6 @@ export function useVideoList() {
     setVideos((prev) => {
       const map = new Map(prev.map((v) => [v.id, v]));
       res.data.forEach((v) => map.set(v.id, v));
-
       return Array.from(map.values()).filter(
         (v) => status === "All" || v.status === status
       );
@@ -218,38 +246,16 @@ export function useVideoList() {
     setLoading(false);
   };
 
-  /* =====================
-     PAGINATION ACTIONS
-  ===================== */
-  const goNext = () => {
-    if (debouncedSearch || !pagination.hasNext) return;
-    setCurrentPage((p) => p + 1);
-    fetchPage(pagination.cursor);
-  };
-
-  const goPrev = () => {
-    if (debouncedSearch || !pagination.hasPrev) return;
-    setCurrentPage((p) => Math.max(1, p - 1));
-    pagination.pop();
-    fetchPage(pagination.cursor, true);
-  };
-
-  /* =====================
-     PUBLIC API
-  ===================== */
   return {
     videos,
     loading,
     timeoutError,
     currentPage,
-
-    canNext: !debouncedSearch && pagination.hasNext,
-    canPrev: !debouncedSearch && pagination.hasPrev,
-
+    canNext: !debouncedSearch && hasNext,
+    canPrev: !debouncedSearch && currentPage > 1,
     goNext,
     goPrev,
-    refetch: () => fetchPage(null, true),
-
+    refetch: () => fetchPage(1),
     isCapped,
     loadMoreResults,
   };
