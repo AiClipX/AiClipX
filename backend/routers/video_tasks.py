@@ -55,14 +55,28 @@ def error_response(
     responses={
         200: {"description": "List of video tasks with pagination"},
         400: {
-            "description": "Invalid cursor format",
+            "description": "Invalid cursor or filter mismatch",
             "content": {
                 "application/json": {
-                    "example": {
-                        "code": "INVALID_CURSOR",
-                        "message": "Invalid cursor format: unable to decode",
-                        "requestId": "req_xxx",
-                        "details": {"cursor": "invalid_base64_string"},
+                    "examples": {
+                        "invalid_cursor": {
+                            "summary": "Invalid cursor format",
+                            "value": {
+                                "code": "INVALID_CURSOR",
+                                "message": "Invalid cursor format: unable to decode",
+                                "requestId": "req_xxx",
+                                "details": {"cursor": "invalid_base64_string"},
+                            },
+                        },
+                        "cursor_filter_mismatch": {
+                            "summary": "Cursor created with different filters",
+                            "value": {
+                                "code": "CURSOR_FILTER_MISMATCH",
+                                "message": "Cursor was created with different filters. Start a new search.",
+                                "requestId": "req_xxx",
+                                "details": {"hint": "Remove cursor when changing q, status, or sort"},
+                            },
+                        },
                     }
                 }
             },
@@ -100,7 +114,11 @@ async def get_video_tasks(
         pattern="^(pending|processing|completed|failed)$",
         description="Filter by status",
     ),
-    q: Optional[str] = Query(default=None, max_length=100, description="Search in title"),
+    q: Optional[str] = Query(
+        default=None,
+        max_length=100,
+        description="Search query: matches title (case-insensitive) OR id (exact). Empty/whitespace = no filter.",
+    ),
     sort: str = Query(
         default="createdAt_desc",
         pattern="^createdAt_(desc|asc)$",
@@ -111,28 +129,43 @@ async def get_video_tasks(
     Get paginated list of video tasks with filtering and sorting.
 
     **Cursor Pagination:**
-    - `nextCursor` encodes (createdAt, id) as base64 for stable pagination
+    - `nextCursor` encodes (createdAt, id, q, status, sort) for stable pagination
     - For `createdAt_desc`: next page returns items where (createdAt, id) < cursor
     - `nextCursor = null` means no more pages
+    - **Important:** Cursor is tied to filters. Changing `q`, `status`, or `sort` with old cursor returns 400.
+
+    **Search (`q` parameter):**
+    - Matches title (case-insensitive contains) OR id (exact match)
+    - Empty/whitespace treated as no filter
 
     **Parameters:**
     - **limit**: Number of tasks (1-100, default 20)
     - **cursor**: Opaque cursor from previous response's nextCursor
     - **status**: Filter by status (pending|processing|completed|failed)
-    - **q**: Search in title (case-insensitive)
+    - **q**: Search query (title OR id)
     - **sort**: Sort order (createdAt_desc|createdAt_asc, default desc)
     """
     start_time = time.perf_counter()
     request_id = getattr(request.state, "request_id", "unknown")
 
+    # Normalize q: trim whitespace
+    normalized_q = q.strip() if q else None
+    if normalized_q == "":
+        normalized_q = None
+
+    # Sanitize q for logging (truncate)
+    q_log = f'"{normalized_q[:20]}..."' if normalized_q and len(normalized_q) > 20 else (f'"{normalized_q}"' if normalized_q else "null")
+
     # Log request with all params
     logger.info(
         f"[{request_id}] GET /api/video-tasks "
-        f"limit={limit} cursor={cursor} status={status} q={q} sort={sort}"
+        f"limit={limit} cursor={'...' + cursor[-10:] if cursor and len(cursor) > 10 else cursor} "
+        f"status={status} q={q_log} sort={sort}"
     )
 
     # Validate and decode cursor if provided
-    decoded_cursor = None
+    cursor_time = None
+    cursor_id = None
     if cursor:
         decoded_cursor = decode_cursor(cursor)
         if decoded_cursor is None:
@@ -144,16 +177,39 @@ async def get_video_tasks(
                 request_id=request_id,
                 details={"cursor": cursor[:50] if len(cursor) > 50 else cursor},
             )
-        cursor_time, cursor_id = decoded_cursor
+
+        cursor_time, cursor_id, cursor_q, cursor_status, cursor_sort = decoded_cursor
         logger.info(
-            f"[{request_id}] Cursor decoded: createdAt={cursor_time.isoformat()}, id={cursor_id}"
+            f"[{request_id}] Cursor decoded: createdAt={cursor_time.isoformat()}, id={cursor_id}, "
+            f"q={cursor_q}, status={cursor_status}, sort={cursor_sort}"
         )
+
+        # Validate filter consistency
+        current_q = normalized_q or ""
+        current_status = status or ""
+        cursor_q_val = cursor_q or ""
+        cursor_status_val = cursor_status or ""
+
+        if cursor_q_val != current_q or cursor_status_val != current_status or cursor_sort != sort:
+            logger.warning(
+                f"[{request_id}] Cursor filter mismatch: "
+                f"cursor(q={cursor_q_val}, status={cursor_status_val}, sort={cursor_sort}) != "
+                f"request(q={current_q}, status={current_status}, sort={sort})"
+            )
+            return error_response(
+                status_code=400,
+                code="CURSOR_FILTER_MISMATCH",
+                message="Cursor was created with different filters. Start a new search.",
+                request_id=request_id,
+                details={"hint": "Remove cursor parameter when changing q, status, or sort"},
+            )
 
     tasks, next_cursor = await video_task_service.get_tasks(
         limit=limit,
-        cursor=cursor,
+        cursor_time=cursor_time,
+        cursor_id=cursor_id,
         status=status,
-        q=q,
+        q=normalized_q,
         sort=sort,
     )
 

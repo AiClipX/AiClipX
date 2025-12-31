@@ -16,18 +16,43 @@ from models.video_task import VideoTask, VideoTaskStatus
 logger = logging.getLogger(__name__)
 
 
-def encode_cursor(created_at: datetime, task_id: str) -> str:
-    """Encode cursor as base64 string."""
-    raw = f"{created_at.isoformat()}|{task_id}"
+def encode_cursor(
+    created_at: datetime,
+    task_id: str,
+    q: Optional[str] = None,
+    status: Optional[str] = None,
+    sort: str = "createdAt_desc",
+) -> str:
+    """
+    Encode cursor as base64 string with filter context.
+    Format: createdAt|id|q|status|sort
+    """
+    raw = f"{created_at.isoformat()}|{task_id}|{q or ''}|{status or ''}|{sort}"
     return base64.urlsafe_b64encode(raw.encode()).decode()
 
 
-def decode_cursor(cursor: str) -> Optional[Tuple[datetime, str]]:
-    """Decode cursor from base64 string. Returns None if invalid."""
+def decode_cursor(cursor: str) -> Optional[Tuple[datetime, str, Optional[str], Optional[str], Optional[str]]]:
+    """
+    Decode cursor from base64 string.
+    Returns: (created_at, task_id, q, status, sort) or None if invalid.
+    """
     try:
         raw = base64.urlsafe_b64decode(cursor.encode()).decode()
-        created_at_str, task_id = raw.split("|", 1)
-        return datetime.fromisoformat(created_at_str), task_id
+        parts = raw.split("|")
+
+        if len(parts) == 2:
+            # Legacy format - treat as expired
+            return None
+
+        if len(parts) == 5:
+            created_at = datetime.fromisoformat(parts[0])
+            task_id = parts[1]
+            q = parts[2] if parts[2] else None
+            status = parts[3] if parts[3] else None
+            sort = parts[4]
+            return created_at, task_id, q, status, sort
+
+        return None
     except Exception:
         return None
 
@@ -47,7 +72,8 @@ class VideoTaskService:
     async def get_tasks(
         self,
         limit: int = 20,
-        cursor: Optional[str] = None,
+        cursor_time: Optional[datetime] = None,
+        cursor_id: Optional[str] = None,
         status: Optional[str] = None,
         q: Optional[str] = None,
         sort: str = "createdAt_desc",
@@ -56,10 +82,11 @@ class VideoTaskService:
         Get paginated list of video tasks from database.
 
         Args:
-            limit: Number of tasks to return (1-50)
-            cursor: Opaque cursor for pagination (base64 encoded)
+            limit: Number of tasks to return (1-100)
+            cursor_time: Decoded cursor timestamp
+            cursor_id: Decoded cursor task ID
             status: Filter by status (pending|processing|completed|failed)
-            q: Search in title (ILIKE)
+            q: Search in title (ILIKE) or id (exact). Empty/whitespace = no filter.
             sort: Sort order (createdAt_desc|createdAt_asc)
 
         Returns:
@@ -69,29 +96,33 @@ class VideoTaskService:
         conditions = []
         params = {"limit": limit}
 
+        # Normalize q: trim whitespace, treat empty as None
+        if q:
+            q = q.strip()
+            if not q:
+                q = None
+
         # Determine sort order
         is_desc = sort == "createdAt_desc"
         order_clause = "created_at DESC, id DESC" if is_desc else "created_at ASC, id ASC"
         cursor_op = "<" if is_desc else ">"
 
         # Cursor condition (composite key for stable pagination)
-        if cursor:
-            decoded = decode_cursor(cursor)
-            if decoded:
-                cursor_time, cursor_id = decoded
-                conditions.append(f"(created_at, id) {cursor_op} (:cursor_time, :cursor_id)")
-                params["cursor_time"] = cursor_time
-                params["cursor_id"] = cursor_id
+        if cursor_time and cursor_id:
+            conditions.append(f"(created_at, id) {cursor_op} (:cursor_time, :cursor_id)")
+            params["cursor_time"] = cursor_time
+            params["cursor_id"] = cursor_id
 
         # Status filter
         if status:
             conditions.append("status = :status")
             params["status"] = status
 
-        # Title search (ILIKE)
+        # Search: title (ILIKE) OR id (exact match)
         if q:
-            conditions.append("title ILIKE :q")
-            params["q"] = f"%{q}%"
+            conditions.append("(title ILIKE :q_like OR id = :q_exact)")
+            params["q_like"] = f"%{q}%"
+            params["q_exact"] = q
 
         # Build WHERE clause
         where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -119,15 +150,19 @@ class VideoTaskService:
                 check_conditions.append("status = :status")
                 check_params["status"] = status
             if q:
-                check_conditions.append("title ILIKE :q")
-                check_params["q"] = f"%{q}%"
+                check_conditions.append("(title ILIKE :q_like OR id = :q_exact)")
+                check_params["q_like"] = f"%{q}%"
+                check_params["q_exact"] = q
 
             check_where = " AND ".join(check_conditions)
             check_query = f"SELECT 1 FROM video_tasks WHERE {check_where} LIMIT 1"
             has_more = await database.fetch_one(check_query, check_params)
 
             if has_more:
-                next_cursor = encode_cursor(last_task.createdAt, last_task.id)
+                next_cursor = encode_cursor(
+                    last_task.createdAt, last_task.id,
+                    q=q, status=status, sort=sort
+                )
 
         return tasks, next_cursor
 
