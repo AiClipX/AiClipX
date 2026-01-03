@@ -32,19 +32,19 @@ export function VideoListItem({ video }: Props) {
     title: "",
   });
   const isDeleteDisabled =
-    video.status === "Processing" || video.status === "Queued";
+    video.status === "processing" || video.status === "queued";
 
   const handleClick = () => {
-    if (video.status === "Failed") return;
+    if (video.status === "failed") return;
 
-    if (video.status === "Processing" || video.status === "Queued") {
+    if (video.status === "processing" || video.status === "queued") {
       alert(
         `Video is still ${video.status}. It will be available when completed.`
       );
       return;
     }
 
-    if (video.status === "Completed" && !video.url) {
+    if (video.status === "completed" && !video.url) {
       alert(`Cannot play video "${video.title}" - URL not found`);
       return;
     }
@@ -61,12 +61,13 @@ export function VideoListItem({ video }: Props) {
     try {
       setDeleting(true);
       await deleteVideoTask(video.id);
-      showToast("Video deleted", "success", 1500);
+      showToast("Video is being created, please wait…", "success", 1000);
+
       setTimeout(() => {
         window.location.reload(); // MVP
       }, 1500);
     } catch {
-      showToast("Video deleted failed", "error", 1500);
+      showToast("Create video failed", "error", 1500);
     } finally {
       setDeleting(false);
       setOpenDelete(false);
@@ -77,20 +78,20 @@ export function VideoListItem({ video }: Props) {
     <>
       <div
         className={`bg-neutral-900 rounded-lg overflow-hidden group cursor-pointer transition hover:scale-[1.03] ${
-          video.status === "Failed" ? "opacity-80 cursor-not-allowed" : ""
+          video.status === "failed" ? "opacity-80 cursor-not-allowed" : ""
         }`}
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         <div className="relative aspect-video bg-black">
-          {video.status === "Failed" && (
+          {video.status === "failed" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 text-red-500 text-sm p-2 text-center">
               <span>{video.errorMessage || "Video generation failed"}</span>
             </div>
           )}
 
-          {video.status !== "Failed" && (
+          {video.status !== "failed" && (
             <>
               {!hovered && (
                 <img
@@ -100,7 +101,7 @@ export function VideoListItem({ video }: Props) {
                 />
               )}
 
-              {hovered && video.status === "Completed" && video.url && (
+              {hovered && video.status === "completed" && video.url && (
                 <video
                   src={video.url}
                   muted
@@ -111,7 +112,7 @@ export function VideoListItem({ video }: Props) {
                 />
               )}
 
-              {(video.status === "Processing" || video.status === "Queued") && (
+              {(video.status === "processing" || video.status === "queued") && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-yellow-400 font-semibold">
                   {statusConfig.label}
                 </div>

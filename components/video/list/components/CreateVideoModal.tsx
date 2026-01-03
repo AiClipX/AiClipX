@@ -18,7 +18,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
 
   const handleSubmit = () => {
     // toast ngay khi submit
-    showToast("Video is being created, please wait…", "success", 1000);
+    showToast("Video is being created, please wait…", "success", 1500);
 
     mutate(
       { title: title || undefined, prompt: prompt || undefined },
@@ -31,7 +31,6 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           setPrompt("");
 
           onClose();
-          showToast("Video created!", "success", 1200);
         },
         onError: () => {
           showToast("Create video failed", "error", 1500);

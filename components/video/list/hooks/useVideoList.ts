@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useVideoListContext } from "./VideoListContext";
 import { fetchVideosCursor } from "../../services/videoService";
-import { Video } from "../../types/videoTypes";
+import { Video, VideoStatus } from "../../types/videoTypes";
 
 /* =====================
    CONFIG
@@ -10,6 +10,9 @@ const LIMIT = 12;
 const SEARCH_DEBOUNCE_MS = 1000;
 const MAX_ITEMS = 300;
 const MAX_REQUESTS = 10;
+const POLL_INTERVAL_MS = 5000;
+
+const CREATING_STATUSES: VideoStatus[] = ["queued", "processing"];
 
 export function useVideoList() {
   const { status, sort, search } = useVideoListContext();
@@ -20,12 +23,11 @@ export function useVideoList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
 
-  const pagesCache = useRef<Map<number, Video[]>>(new Map()); // cache theo page index
-  const pageCursors = useRef<Map<number, string | null>>(new Map()); // cursor cuối mỗi page
+  const pagesCache = useRef<Map<number, Video[]>>(new Map());
+  const pageCursors = useRef<Map<number, string | null>>(new Map());
 
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const searchCursorRef = useRef<string | null>(null);
-  const searchRequestRef = useRef(0);
   const [isCapped, setIsCapped] = useState(false);
 
   /* =====================
@@ -47,14 +49,13 @@ export function useVideoList() {
 
     setVideos((prev) => {
       const map = new Map(prev.map((v) => [v.id, v]));
-      map.set(newVideo.id, newVideo); // 👈 overwrite nếu đã tồn tại
+      map.set(newVideo.id, newVideo);
       return [
         newVideo,
         ...Array.from(map.values()).filter((v) => v.id !== newVideo.id),
       ];
     });
 
-    // sync cache page 1
     const page1 = pagesCache.current.get(1);
     if (page1) {
       const map = new Map(page1.map((v) => [v.id, v]));
@@ -67,14 +68,13 @@ export function useVideoList() {
   };
 
   /* =====================
-     FETCH PAGE (NORMAL MODE)
+     FETCH PAGE
   ===================== */
-  const fetchPage = async (pageIndex: number) => {
-    setLoading(true);
+  const fetchPage = async (pageIndex: number, force = false) => {
+    // setLoading(true);
     setTimeoutError(false);
 
-    // dùng cache nếu có
-    if (pagesCache.current.has(pageIndex)) {
+    if (!force && pagesCache.current.has(pageIndex)) {
       setVideos(pagesCache.current.get(pageIndex)!);
       setCurrentPage(pageIndex);
       setHasNext(pageCursors.current.get(pageIndex) != null);
@@ -87,8 +87,8 @@ export function useVideoList() {
         pageIndex === 1 ? null : pageCursors.current.get(pageIndex - 1) ?? null;
 
       let collected: Video[] = [];
-      let safety = 0;
       let hasMore = true;
+      let safety = 0;
 
       while (collected.length < LIMIT && hasMore && safety < 10) {
         const res = await fetchVideosCursor({
@@ -103,14 +103,12 @@ export function useVideoList() {
             : res.data.filter((v) => v.status === status);
 
         collected.push(...filtered);
-
         cursor = res.nextCursor ?? null;
-        hasMore = !!res.nextCursor;
+        hasMore = !!cursor;
         safety++;
       }
 
       const pageVideos = collected.slice(0, LIMIT);
-
       pagesCache.current.set(pageIndex, pageVideos);
       pageCursors.current.set(pageIndex, cursor);
 
@@ -124,6 +122,26 @@ export function useVideoList() {
       setLoading(false);
     }
   };
+
+  /* =====================
+     POLLING (Queued / Processing)
+  ===================== */
+  useEffect(() => {
+    if (debouncedSearch) return;
+
+    const hasCreating = videos.some((v) =>
+      CREATING_STATUSES.includes(v.status)
+    );
+
+    if (!hasCreating) return;
+
+    const interval = setInterval(() => {
+      pagesCache.current.delete(currentPage);
+      fetchPage(currentPage, true);
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [videos, currentPage, debouncedSearch]);
 
   /* =====================
      NAVIGATION
@@ -145,7 +163,7 @@ export function useVideoList() {
     if (debouncedSearch) return;
     pagesCache.current.clear();
     pageCursors.current.clear();
-    fetchPage(1);
+    fetchPage(1, true);
   }, [status, sort, debouncedSearch]);
 
   /* =====================
@@ -186,55 +204,27 @@ export function useVideoList() {
       }
 
       if (cancelled) return;
-
       if (cursor) setIsCapped(true);
 
       const keyword = debouncedSearch.toLowerCase();
       setVideos(
-        collected
-          .filter((v) => status === "All" || v.status === status)
-          .filter(
-            (v) =>
-              v.title?.toLowerCase().includes(keyword) ||
-              v.id.toLowerCase().includes(keyword)
-          )
+        collected.filter(
+          (v) =>
+            (status === "All" || v.status === status) &&
+            (v.title?.toLowerCase().includes(keyword) ||
+              v.id.toLowerCase().includes(keyword))
+        )
       );
 
       searchCursorRef.current = cursor;
-      searchRequestRef.current = requests;
       setLoading(false);
     };
 
     runSearch();
-
     return () => {
       cancelled = true;
     };
   }, [debouncedSearch, status, sort]);
-
-  const loadMoreResults = async () => {
-    if (!searchCursorRef.current) return;
-    setLoading(true);
-
-    const res = await fetchVideosCursor({
-      limit: LIMIT,
-      cursor: searchCursorRef.current,
-      sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
-    });
-
-    searchCursorRef.current = res.nextCursor ?? null;
-    if (!searchCursorRef.current) setIsCapped(false);
-
-    setVideos((prev) => {
-      const map = new Map(prev.map((v) => [v.id, v]));
-      res.data.forEach((v) => map.set(v.id, v));
-      return Array.from(map.values()).filter(
-        (v) => status === "All" || v.status === status
-      );
-    });
-
-    setLoading(false);
-  };
 
   return {
     videos,
@@ -245,9 +235,8 @@ export function useVideoList() {
     canPrev: !debouncedSearch && currentPage > 1,
     goNext,
     goPrev,
-    refetch: () => fetchPage(1),
+    refetch: () => fetchPage(1, true),
     isCapped,
-    loadMoreResults,
     prependVideo,
   };
 }

@@ -7,39 +7,39 @@ const API_URL = `${process.env.NEXT_PUBLIC_API_VIDEO}/api/video-tasks`;
    Helpers
 ===================== */
 
-function parseStatus(status: string): VideoStatus {
-  switch (status?.toLowerCase()) {
-    case "queued":
-      return "Queued";
-    case "processing":
-      return "Processing";
-    case "completed":
-      return "Completed";
-    case "failed":
-      return "Failed";
-    default:
-      return "Processing";
-  }
-}
+// function parseStatus(status: string): VideoStatus {
+//   switch (status?.toLowerCase()) {
+//     case "queued":
+//       return "Queued";
+//     case "processing":
+//       return "Processing";
+//     case "completed":
+//       return "Completed";
+//     case "failed":
+//       return "Failed";
+//     default:
+//       return "Processing";
+//   }
+// }
 
 function getPlaceholderThumbnail(status: VideoStatus): string {
   return `https://picsum.photos/400/225?random=${status}`;
 }
 
 function resolveVideoUrl(status: VideoStatus): string | null {
-  return status === "Completed" ? "/mock/sample.mp4" : null;
+  return status === "completed" ? "/mock/sample.mp4" : null;
 }
 
 function parseVideo(raw: any): Video {
-  const status = parseStatus(raw.status);
-
+  console.log(status);
+  console.log(raw.status);
   return {
     id: raw.id,
     title: raw.title,
-    status,
+    status: raw.status,
     createdAt: raw.createdAt,
-    thumbnail: raw.thumbnail || getPlaceholderThumbnail(status),
-    url: raw.videoUrl || resolveVideoUrl(status),
+    thumbnail: raw.thumbnail || getPlaceholderThumbnail(raw.status),
+    url: raw.videoUrl || resolveVideoUrl(raw.status),
     duration: undefined,
     ratio: undefined,
     language: undefined,
@@ -80,7 +80,7 @@ export async function fetchVideosCursor(params: {
   status?: string; // ✅ THÊM DÒNG NÀY
 }): Promise<{ data: Video[]; nextCursor?: string }> {
   const res = await axios.get(API_URL, {
-    params: buildCursorParams(params),
+    params: buildCursorParams(params), // ✅ FIX
   });
 
   return {

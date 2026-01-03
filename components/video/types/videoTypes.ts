@@ -1,14 +1,14 @@
 export type VideoStatus =
-  | "Draft"
-  | "Processing"
-  | "Completed"
-  | "Failed"
-  | "Queued";
+  | "draft"
+  | "queued"
+  | "processing"
+  | "completed"
+  | "failed";
 
 export interface Video {
   id: string;
   title: string;
-  status: VideoStatus;
+  status: VideoStatus; // dùng chữ thường
   createdAt: string;
   thumbnail: string;
   url: string | null;
@@ -19,27 +19,28 @@ export interface Video {
   errorMessage?: string | null;
 }
 
+// Config hiển thị
 export const VIDEO_STATUS_CONFIG: Record<
   VideoStatus,
   { label: string; className: string }
 > = {
-  Draft: {
+  draft: {
     label: "Draft",
     className: "text-gray-600",
   },
-  Queued: {
+  queued: {
     label: "Waiting",
     className: "text-gray-400",
   },
-  Processing: {
+  processing: {
     label: "Processing…",
     className: "text-yellow-400",
   },
-  Completed: {
+  completed: {
     label: "Completed",
     className: "text-green-400",
   },
-  Failed: {
+  failed: {
     label: "Failed",
     className: "text-red-500",
   },

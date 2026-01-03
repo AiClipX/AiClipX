@@ -29,7 +29,6 @@ export function VideoListContainer() {
     // NEW from hook
     isCapped,
     prependVideo,
-    loadMoreResults,
   } = useVideoList();
 
   const [openCreate, setOpenCreate] = useState(false);
@@ -111,19 +110,6 @@ export function VideoListContainer() {
         <>
           <VideoList videos={videos} />
 
-          {/* SEARCH CAP HINT */}
-          {isCapped && (
-            <div className="mt-4 text-sm text-neutral-400 flex items-center gap-2">
-              <span>Results may be partial.</span>
-              <button
-                onClick={loadMoreResults}
-                className="underline text-blue-400"
-              >
-                Load more…
-              </button>
-            </div>
-          )}
-
           {/* Pagination (disabled during search) */}
           <div className="flex justify-center items-center mt-6 gap-4">
             <button
@@ -150,7 +136,7 @@ export function VideoListContainer() {
       <CreateVideoModal
         open={openCreate}
         onClose={() => setOpenCreate(false)}
-        onCreated={(newVideo) => prependVideo(newVideo)} // prependVideo từ hook useVideoList
+        onCreated={(newVideo) => prependVideo(newVideo)}
       />
     </section>
   );

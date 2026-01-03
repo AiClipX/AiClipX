@@ -1,11 +1,12 @@
-import { VideoStatus } from "../../types/videoTypes";
+import { VIDEO_STATUS_CONFIG, VideoStatus } from "../../types/videoTypes";
 
 const STATUSES: (VideoStatus | "All")[] = [
   "All",
-  "Completed",
-  "Processing",
-  "Draft",
-  "Failed",
+  "completed",
+  "queued",
+  "processing",
+  "failed",
+  "draft",
 ];
 
 interface Props {
@@ -20,17 +21,13 @@ export function StatusFilter({ value, onChange }: Props) {
         <button
           key={s}
           onClick={() => onChange(s)}
-          className={`
-            px-3 py-1 text-sm rounded transition-colors
-            ${
-              value === s
-                ? "bg-blue-600 text-white"
-                : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
-            }
-            cursor-pointer
-          `}
+          className={`px-3 py-1 text-sm rounded transition-colors ${
+            value === s
+              ? "bg-blue-600 text-white"
+              : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+          } cursor-pointer`}
         >
-          {s}
+          {s === "All" ? "All" : VIDEO_STATUS_CONFIG[s as VideoStatus].label}
         </button>
       ))}
     </div>
