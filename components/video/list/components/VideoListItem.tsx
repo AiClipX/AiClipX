@@ -61,13 +61,12 @@ export function VideoListItem({ video }: Props) {
     try {
       setDeleting(true);
       await deleteVideoTask(video.id);
-      showToast("Video is being created, please wait…", "success", 1000);
-
+      showToast("Video deleted", "success", 1500);
       setTimeout(() => {
         window.location.reload(); // MVP
       }, 1500);
     } catch {
-      showToast("Create video failed", "error", 1500);
+      showToast("Video deleted failed", "error", 1500);
     } finally {
       setDeleting(false);
       setOpenDelete(false);

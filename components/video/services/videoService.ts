@@ -80,7 +80,7 @@ export async function fetchVideosCursor(params: {
   status?: string; // ✅ THÊM DÒNG NÀY
 }): Promise<{ data: Video[]; nextCursor?: string }> {
   const res = await axios.get(API_URL, {
-    params: buildCursorParams(params), // ✅ FIX
+    params: buildCursorParams(params),
   });
 
   return {

@@ -43,10 +43,26 @@ export function useVideoList() {
      PREPEND VIDEO MỚI
   ===================== */
   const prependVideo = (newVideo: Video) => {
-    if (status === "All" || newVideo.status === status) {
-      setLoading(true);
-      setVideos((prev) => [newVideo, ...prev]);
-      setLoading(false);
+    if (status !== "All" && newVideo.status !== status) return;
+
+    setVideos((prev) => {
+      const map = new Map(prev.map((v) => [v.id, v]));
+      map.set(newVideo.id, newVideo); // 👈 overwrite nếu đã tồn tại
+      return [
+        newVideo,
+        ...Array.from(map.values()).filter((v) => v.id !== newVideo.id),
+      ];
+    });
+
+    // sync cache page 1
+    const page1 = pagesCache.current.get(1);
+    if (page1) {
+      const map = new Map(page1.map((v) => [v.id, v]));
+      map.set(newVideo.id, newVideo);
+      pagesCache.current.set(1, [
+        newVideo,
+        ...Array.from(map.values()).filter((v) => v.id !== newVideo.id),
+      ]);
     }
   };
 
@@ -57,7 +73,7 @@ export function useVideoList() {
     setLoading(true);
     setTimeoutError(false);
 
-    // Nếu cache page thì dùng cache
+    // dùng cache nếu có
     if (pagesCache.current.has(pageIndex)) {
       setVideos(pagesCache.current.get(pageIndex)!);
       setCurrentPage(pageIndex);
@@ -67,24 +83,40 @@ export function useVideoList() {
     }
 
     try {
-      const prevCursor = pageCursors.current.get(pageIndex - 1) ?? null;
+      let cursor =
+        pageIndex === 1 ? null : pageCursors.current.get(pageIndex - 1) ?? null;
 
-      const res = await fetchVideosCursor({
-        limit: LIMIT,
-        cursor: prevCursor ?? undefined,
-        sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
-      });
+      let collected: Video[] = [];
+      let safety = 0;
+      let hasMore = true;
 
-      let newVideos = res.data;
-      if (status !== "All")
-        newVideos = newVideos.filter((v) => v.status === status);
+      while (collected.length < LIMIT && hasMore && safety < 10) {
+        const res = await fetchVideosCursor({
+          limit: LIMIT,
+          cursor: cursor ?? undefined,
+          sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
+        });
 
-      pagesCache.current.set(pageIndex, newVideos);
-      pageCursors.current.set(pageIndex, res.nextCursor ?? null);
+        const filtered =
+          status === "All"
+            ? res.data
+            : res.data.filter((v) => v.status === status);
 
-      setVideos(newVideos);
+        collected.push(...filtered);
+
+        cursor = res.nextCursor ?? null;
+        hasMore = !!res.nextCursor;
+        safety++;
+      }
+
+      const pageVideos = collected.slice(0, LIMIT);
+
+      pagesCache.current.set(pageIndex, pageVideos);
+      pageCursors.current.set(pageIndex, cursor);
+
+      setVideos(pageVideos);
       setCurrentPage(pageIndex);
-      setHasNext(res.nextCursor != null);
+      setHasNext(hasMore);
     } catch (err) {
       console.error(err);
       setTimeoutError(true);
