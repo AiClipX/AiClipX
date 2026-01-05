@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from contextlib import asynccontextmanager
 
-from database import close_db, init_db
+from database import close_db, init_db, check_db_health
 from generate_video import generate_video
 from routers import video_tasks, tts
 
@@ -28,7 +28,7 @@ from routers import video_tasks, tts
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - startup and shutdown."""
-    # Startup
+    # Startup - database is REQUIRED (BE-DB-PERSIST-001)
     await init_db()
     yield
     # Shutdown
@@ -151,13 +151,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 @app.get("/health")
-def health_check():
-    """Health check endpoint - returns server status, time, and version."""
-    return {
-        "ok": True,
+async def health_check():
+    """Health check endpoint - returns server status, time, version, and DB status."""
+    db_ok = await check_db_health()
+
+    response_body = {
+        "ok": db_ok,
+        "db": "ok" if db_ok else "error",
         "time": datetime.now(timezone.utc).isoformat(),
         "version": VERSION,
     }
+
+    if not db_ok:
+        return JSONResponse(status_code=503, content=response_body)
+
+    return response_body
 # 静态目录：用于暴露生成的视频文件
 Path("outputs").mkdir(exist_ok=True)
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")

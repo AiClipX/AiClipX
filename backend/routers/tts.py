@@ -2,9 +2,11 @@
 """TTS API router for Azure Text-to-Speech synthesis."""
 
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 
+from database import database
 from models.tts import TTSRequest, TTSResponse
 from services.azure_tts import (
     AzureTTSConfigError,
@@ -128,6 +130,31 @@ async def generate_tts(request: Request, body: TTSRequest) -> TTSResponse:
             status_code=502,
             detail=f"Failed to store audio: {e}",
         )
+
+    # Step 3: Persist to database (BE-DB-PERSIST-001)
+    tts_record_id = f"tts_{uuid4().hex[:12]}"
+    try:
+        await database.execute(
+            """
+            INSERT INTO tts_requests (id, request_id, locale, voice, text_len, ssml, audio_url, bytes, format)
+            VALUES (:id, :request_id, :locale, :voice, :text_len, :ssml, :audio_url, :bytes, :format)
+            """,
+            {
+                "id": tts_record_id,
+                "request_id": request_id,
+                "locale": body.locale or "en-US",
+                "voice": tts_result.voice,
+                "text_len": len(body.text) if body.text else 0,
+                "ssml": body.ssml,
+                "audio_url": upload_result.url,
+                "bytes": upload_result.bytes,
+                "format": tts_result.format,
+            },
+        )
+        logger.info(f"[{request_id}] TTS persisted to DB: id={tts_record_id}")
+    except Exception as e:
+        # Log but don't fail - persistence is secondary to serving the request
+        logger.error(f"[{request_id}] Failed to persist TTS to DB: {e}")
 
     logger.info(
         f"[{request_id}] TTS complete: url={upload_result.url[:80]}..., bytes={upload_result.bytes}"
