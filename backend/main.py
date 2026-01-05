@@ -4,6 +4,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (looks in current dir and parent)
+load_dotenv()
+load_dotenv("../.env")
+
 from fastapi import FastAPI, HTTPException as FastAPIHTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +22,7 @@ from contextlib import asynccontextmanager
 
 from database import close_db, init_db
 from generate_video import generate_video
-from routers import video_tasks
+from routers import video_tasks, tts
 
 
 @asynccontextmanager
@@ -66,8 +72,9 @@ app.add_middleware(
     expose_headers=["X-Request-Id"],
 )
 
-# Include video tasks router
+# Include routers
 app.include_router(video_tasks.router, prefix="/api")
+app.include_router(tts.router, prefix="/api")
 
 
 # Standard error response model
@@ -121,13 +128,23 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     field = ".".join(str(x) for x in first_error.get("loc", []))
     msg = first_error.get("msg", "Validation failed")
 
+    # Convert errors to JSON-serializable format
+    serializable_errors = [
+        {
+            "loc": list(e.get("loc", [])),
+            "msg": str(e.get("msg", "")),
+            "type": str(e.get("type", "")),
+        }
+        for e in errors
+    ]
+
     return JSONResponse(
         status_code=422,
         content={
             "code": "VALIDATION_ERROR",
             "message": f"{field}: {msg}",
             "requestId": request_id,
-            "details": {"errors": errors},
+            "details": {"errors": serializable_errors},
         },
         headers={"X-Request-Id": request_id},
     )
