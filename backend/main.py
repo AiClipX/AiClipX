@@ -1,32 +1,198 @@
-from fastapi import FastAPI
+import logging
 import os
-from fastapi import FastAPI
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (looks in current dir and parent)
+load_dotenv()
+load_dotenv("../.env")
+
+from fastapi import FastAPI, HTTPException as FastAPIHTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from pathlib import Path
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from contextlib import asynccontextmanager
+
+from database import close_db, init_db, check_db_health
 from generate_video import generate_video
+from routers import video_tasks, tts
 
-app = FastAPI(title="AiClipX v0.3")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle - startup and shutdown."""
+    # Startup - database is REQUIRED (BE-DB-PERSIST-001)
+    await init_db()
+    yield
+    # Shutdown
+    await close_db()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
+VERSION = "0.5.0"
+
+# OpenAPI servers configuration (BE-PROD-GATE-001)
+API_BASE_URL = os.getenv("API_BASE_URL", "").strip()
+openapi_servers = []
+if API_BASE_URL:
+    openapi_servers.append({"url": API_BASE_URL, "description": "Production"})
+
+app = FastAPI(
+    title="AiClipX",
+    version=VERSION,
+    lifespan=lifespan,
+    servers=openapi_servers if openapi_servers else None,
+    description="AiClipX Backend API - Video generation and Text-to-Speech services",
 )
 
-@app.get("/health")
-def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "ok",
-        "database_url": os.getenv("SUPABASE_URL"),
-        "env_vars": {
-            "SUPABASE_URL": bool(os.getenv("SUPABASE_URL")),
-            "SUPABASE_ANON_KEY": bool(os.getenv("SUPABASE_ANON_KEY")),
-            "SUPABASE_SERVICE_KEY": bool(os.getenv("SUPABASE_SERVICE_KEY"))
+# Request ID middleware (BE-STG8: reuse client's X-Request-Id if provided)
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Reuse client's X-Request-Id if provided, otherwise generate new one
+        client_request_id = request.headers.get("X-Request-Id")
+        if client_request_id and len(client_request_id) <= 64:
+            request_id = client_request_id
+        else:
+            request_id = f"req_{uuid4().hex[:8]}"
+
+        request.state.request_id = request_id
+        logger.info(f"[{request_id}] {request.method} {request.url.path}")
+
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request_id
+        logger.info(f"[{request_id}] Response: {response.status_code}")
+        return response
+
+
+# CORS Configuration (BE-PROD-GATE-001)
+# Production origins from env var, fallback to restrictive default
+CORS_ORIGINS_STR = os.getenv("CORS_ORIGINS", "").strip()
+CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(",") if origin.strip()] if CORS_ORIGINS_STR else [
+    "https://www.aiclipgo.com",
+    "https://www.aiclipx.app",
+]
+
+# Add localhost for development if LOCAL_DEV=true
+if os.getenv("LOCAL_DEV", "").lower() == "true":
+    CORS_ORIGINS.extend(["http://localhost:3000", "http://127.0.0.1:3000"])
+
+logger.info(f"CORS origins: {CORS_ORIGINS}")
+
+# Add middlewares (order matters - first added = outermost)
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel preview deployments
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Request-Id"],
+)
+
+# Include routers
+app.include_router(video_tasks.router, prefix="/api")
+app.include_router(tts.router, prefix="/api")
+
+
+# Standard error response model
+class ErrorResponse(BaseModel):
+    code: str
+    message: str
+    requestId: str
+
+
+# Exception handlers for standard error format
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.error(f"[{request_id}] Unhandled error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": "INTERNAL_ERROR",
+            "message": "An unexpected error occurred",
+            "requestId": request_id,
+            "details": {},
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
+
+@app.exception_handler(FastAPIHTTPException)
+async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.warning(f"[{request_id}] HTTP {exc.status_code}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": f"HTTP_{exc.status_code}",
+            "message": str(exc.detail),
+            "requestId": request_id,
+            "details": {},
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    request_id = getattr(request.state, "request_id", "unknown")
+    errors = exc.errors()
+    logger.warning(f"[{request_id}] Validation error: {errors}")
+
+    # Extract first error for human-readable message
+    first_error = errors[0] if errors else {}
+    field = ".".join(str(x) for x in first_error.get("loc", []))
+    msg = first_error.get("msg", "Validation failed")
+
+    # Convert errors to JSON-serializable format
+    serializable_errors = [
+        {
+            "loc": list(e.get("loc", [])),
+            "msg": str(e.get("msg", "")),
+            "type": str(e.get("type", "")),
         }
+        for e in errors
+    ]
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "code": "VALIDATION_ERROR",
+            "message": f"{field}: {msg}",
+            "requestId": request_id,
+            "details": {"errors": serializable_errors},
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint - returns server status, time, version, and DB status."""
+    db_ok = await check_db_health()
+
+    response_body = {
+        "ok": db_ok,
+        "db": "ok" if db_ok else "error",
+        "time": datetime.now(timezone.utc).isoformat(),
+        "version": VERSION,
     }
+
+    if not db_ok:
+        return JSONResponse(status_code=503, content=response_body)
+
+    return response_body
 # 静态目录：用于暴露生成的视频文件
 Path("outputs").mkdir(exist_ok=True)
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
@@ -39,10 +205,11 @@ class GenReq(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "🚀 AiClipX v0.3 backend OK"}
+    return {"message": f"AiClipX v{VERSION} backend OK"}
 
-@app.post("/generate")
+@app.post("/generate", include_in_schema=False, deprecated=True)
 def generate_endpoint(req: GenReq):
+    """DEPRECATED: Use POST /api/video-tasks instead. This endpoint is for internal/legacy use only."""
     out_path = generate_video(
         script=req.script.strip(),
         language=req.language,
