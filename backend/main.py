@@ -40,7 +40,19 @@ logger = logging.getLogger(__name__)
 
 VERSION = "0.5.0"
 
-app = FastAPI(title="AiClipX", version=VERSION, lifespan=lifespan)
+# OpenAPI servers configuration (BE-PROD-GATE-001)
+API_BASE_URL = os.getenv("API_BASE_URL", "").strip()
+openapi_servers = []
+if API_BASE_URL:
+    openapi_servers.append({"url": API_BASE_URL, "description": "Production"})
+
+app = FastAPI(
+    title="AiClipX",
+    version=VERSION,
+    lifespan=lifespan,
+    servers=openapi_servers if openapi_servers else None,
+    description="AiClipX Backend API - Video generation and Text-to-Speech services",
+)
 
 # Request ID middleware (BE-STG8: reuse client's X-Request-Id if provided)
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -61,11 +73,26 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# CORS Configuration (BE-PROD-GATE-001)
+# Production origins from env var, fallback to restrictive default
+CORS_ORIGINS_STR = os.getenv("CORS_ORIGINS", "").strip()
+CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(",") if origin.strip()] if CORS_ORIGINS_STR else [
+    "https://www.aiclipgo.com",
+    "https://www.aiclipx.app",
+]
+
+# Add localhost for development if LOCAL_DEV=true
+if os.getenv("LOCAL_DEV", "").lower() == "true":
+    CORS_ORIGINS.extend(["http://localhost:3000", "http://127.0.0.1:3000"])
+
+logger.info(f"CORS origins: {CORS_ORIGINS}")
+
 # Add middlewares (order matters - first added = outermost)
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel preview deployments
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -180,8 +207,9 @@ class GenReq(BaseModel):
 def root():
     return {"message": f"AiClipX v{VERSION} backend OK"}
 
-@app.post("/generate")
+@app.post("/generate", include_in_schema=False, deprecated=True)
 def generate_endpoint(req: GenReq):
+    """DEPRECATED: Use POST /api/video-tasks instead. This endpoint is for internal/legacy use only."""
     out_path = generate_video(
         script=req.script.strip(),
         language=req.language,
