@@ -91,6 +91,20 @@ def generate_tts_path() -> str:
     return f"tts/{date_folder}/{unique_id}.mp3"
 
 
+def generate_video_path() -> str:
+    """
+    Generate a unique path for video file.
+
+    Format: videos/{yyyyMMdd}/{uuid}.mp4
+
+    Returns:
+        str: Unique file path
+    """
+    date_folder = datetime.utcnow().strftime("%Y%m%d")
+    unique_id = uuid4().hex[:12]
+    return f"videos/{date_folder}/{unique_id}.mp4"
+
+
 async def upload_audio(
     audio_bytes: bytes,
     content_type: str = "audio/mpeg",
@@ -186,3 +200,71 @@ async def upload_audio(
                 raise
             logger.error(f"[{request_id}] Failed to create signed URL: {e}")
             raise SupabaseUploadError(f"Failed to create signed URL: {e}")
+
+
+async def upload_video(
+    video_bytes: bytes,
+    content_type: str = "video/mp4",
+    request_id: str = "unknown",
+) -> UploadResult:
+    """
+    Upload video bytes to Supabase storage.
+
+    Args:
+        video_bytes: Video file content
+        content_type: MIME type of the video
+        request_id: Request ID for logging
+
+    Returns:
+        UploadResult: Upload result with URL and metadata
+
+    Raises:
+        SupabaseConfigError: If Supabase is not properly configured
+        SupabaseUploadError: If upload fails
+    """
+    client = get_supabase_client()
+    bucket = get_outputs_bucket()
+    file_path = generate_video_path()
+
+    logger.info(
+        f"[{request_id}] Supabase video upload: bucket={bucket}, path={file_path}, size={len(video_bytes)}"
+    )
+
+    try:
+        # Upload file
+        response = client.storage.from_(bucket).upload(
+            path=file_path,
+            file=video_bytes,
+            file_options={
+                "content-type": content_type,
+                "cache-control": "3600",
+                "upsert": "false",
+            },
+        )
+
+        # Check for upload error
+        if hasattr(response, "error") and response.error:
+            raise SupabaseUploadError(f"Upload failed: {response.error}")
+
+    except Exception as e:
+        if isinstance(e, SupabaseUploadError):
+            raise
+        logger.error(f"[{request_id}] Supabase video upload failed: {e}")
+        raise SupabaseUploadError(f"Failed to upload video: {e}")
+
+    # Get public URL
+    try:
+        public_url_response = client.storage.from_(bucket).get_public_url(file_path)
+        public_url = public_url_response
+
+        logger.info(f"[{request_id}] Supabase video upload success: {file_path}")
+
+        return UploadResult(
+            url=public_url,
+            path=file_path,
+            bucket=bucket,
+            bytes=len(video_bytes),
+        )
+    except Exception as e:
+        logger.error(f"[{request_id}] Failed to get public URL for video: {e}")
+        raise SupabaseUploadError(f"Failed to get public URL: {e}")

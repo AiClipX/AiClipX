@@ -10,10 +10,23 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from uuid import uuid4
 
+import httpx
 import json
 
 from database import database
 from models.video_task import VideoTask, VideoTaskStatus, VideoTaskParams
+from services.runway import (
+    create_image_to_video_task,
+    get_task_status,
+    RunwayTaskStatus,
+    RunwayAPIError,
+    RunwayConfigError,
+)
+from services.supabase_storage import (
+    upload_video,
+    SupabaseUploadError,
+    SupabaseConfigError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -419,6 +432,153 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService):
             )
         except Exception as update_err:
             logger.error(f"[BG] Failed to update task {task_id} to failed: {update_err}")
+
+
+# Runway polling configuration
+RUNWAY_POLL_INTERVAL = 5  # seconds between status checks
+RUNWAY_MAX_POLL_TIME = 300  # max 5 minutes polling
+
+
+async def process_runway_task(
+    task_id: str,
+    prompt: str,
+    source_image_url: str,
+    service: VideoTaskService,
+    request_id: str = "unknown",
+):
+    """
+    Background function to process Runway image-to-video task.
+
+    Flow:
+    1. queued -> processing (immediately)
+    2. Call Runway API to create task
+    3. Poll Runway for completion (progress updates: 0 -> 50 -> 100)
+    4. Download video from Runway
+    5. Upload to Supabase Storage
+    6. processing -> completed with Supabase URL
+
+    On any error: processing -> failed with errorMessage
+    """
+    logger.info(f"[{request_id}] Starting Runway processing for task {task_id}")
+
+    try:
+        # Step 1: Transition to processing
+        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=0)
+        logger.info(f"[{request_id}] Task {task_id} transitioned to processing")
+
+        # Step 2: Create Runway task
+        logger.info(f"[{request_id}] Creating Runway task for {task_id}")
+        runway_task_id = await create_image_to_video_task(
+            prompt_image_url=source_image_url,
+            prompt_text=prompt,
+            request_id=request_id,
+        )
+        logger.info(f"[{request_id}] Runway task created: {runway_task_id}")
+
+        # Update progress to 10% after task creation
+        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=10)
+
+        # Step 3: Poll Runway for completion
+        elapsed_time = 0
+        output_url = None
+
+        while elapsed_time < RUNWAY_MAX_POLL_TIME:
+            await asyncio.sleep(RUNWAY_POLL_INTERVAL)
+            elapsed_time += RUNWAY_POLL_INTERVAL
+
+            runway_result = await get_task_status(runway_task_id, request_id)
+            logger.info(
+                f"[{request_id}] Runway task {runway_task_id} status={runway_result.status.value} "
+                f"progress={runway_result.progress}"
+            )
+
+            # Update progress (map Runway progress 0-100 to our progress 10-90)
+            progress = 10 + int(runway_result.progress * 0.8)  # 10 + 80% of runway progress
+            await service.update_task_status(task_id, VideoTaskStatus.processing, progress=progress)
+
+            if runway_result.status == RunwayTaskStatus.SUCCEEDED:
+                output_url = runway_result.output_url
+                logger.info(f"[{request_id}] Runway task completed: {output_url}")
+                break
+            elif runway_result.status == RunwayTaskStatus.FAILED:
+                raise RunwayAPIError(
+                    f"Runway generation failed: {runway_result.error_message}"
+                )
+            elif runway_result.status == RunwayTaskStatus.CANCELED:
+                raise RunwayAPIError("Runway task was canceled")
+
+        if not output_url:
+            raise RunwayAPIError(f"Runway task timed out after {RUNWAY_MAX_POLL_TIME}s")
+
+        # Step 4: Download video from Runway
+        logger.info(f"[{request_id}] Downloading video from Runway: {output_url[:50]}...")
+        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=92)
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            download_response = await client.get(output_url)
+            if download_response.status_code != 200:
+                raise RunwayAPIError(
+                    f"Failed to download video: HTTP {download_response.status_code}"
+                )
+            video_bytes = download_response.content
+
+        logger.info(f"[{request_id}] Downloaded video: {len(video_bytes)} bytes")
+        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=95)
+
+        # Step 5: Upload to Supabase Storage
+        logger.info(f"[{request_id}] Uploading video to Supabase...")
+        upload_result = await upload_video(
+            video_bytes=video_bytes,
+            content_type="video/mp4",
+            request_id=request_id,
+        )
+        supabase_url = upload_result.url
+        logger.info(f"[{request_id}] Video uploaded to Supabase: {upload_result.path}")
+
+        # Step 6: Transition to completed
+        await service.update_task_status(
+            task_id,
+            VideoTaskStatus.completed,
+            progress=100,
+            video_url=supabase_url,
+        )
+        logger.info(f"[{request_id}] Task {task_id} completed with videoUrl: {supabase_url[:50]}...")
+
+    except (RunwayAPIError, RunwayConfigError) as e:
+        error_msg = f"Runway error: {str(e)}"
+        logger.error(f"[{request_id}] {error_msg}")
+        try:
+            await service.update_task_status(
+                task_id,
+                VideoTaskStatus.failed,
+                error_message=error_msg,
+            )
+        except Exception as update_err:
+            logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
+
+    except (SupabaseUploadError, SupabaseConfigError) as e:
+        error_msg = f"Storage error: {str(e)}"
+        logger.error(f"[{request_id}] {error_msg}")
+        try:
+            await service.update_task_status(
+                task_id,
+                VideoTaskStatus.failed,
+                error_message=error_msg,
+            )
+        except Exception as update_err:
+            logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
+
+    except Exception as e:
+        error_msg = f"Processing error: {str(e)}"
+        logger.error(f"[{request_id}] Unexpected error in Runway processing: {e}")
+        try:
+            await service.update_task_status(
+                task_id,
+                VideoTaskStatus.failed,
+                error_message=error_msg,
+            )
+        except Exception as update_err:
+            logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
 
 # Singleton instance

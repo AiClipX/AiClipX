@@ -21,6 +21,7 @@ from services.idempotency import check_idempotency, store_idempotency
 from services.video_task_service import (
     decode_cursor,
     simulate_task_processing,
+    process_runway_task,
     video_task_service,
 )
 
@@ -277,18 +278,18 @@ async def create_video_task(
     ),
 ) -> VideoTask:
     """
-    Create a new video task (BE-STG8).
+    Create a new video task (BE-STG8 + BE-ENGINE-001).
 
     - **title**: Task title (required, max 500 chars)
     - **prompt**: Video generation prompt (required, max 2000 chars)
-    - **sourceImageUrl**: Optional source image URL
+    - **sourceImageUrl**: Source image URL (required for engine=runway)
     - **engine**: Video engine - "runway" or "mock" (default: mock)
     - **params**: Optional generation parameters (durationSec, ratio)
     - **Idempotency-Key** header: Optional, prevents duplicate creation for 60 minutes.
 
     Returns the created task with queued status.
     For engine=mock: auto-transitions queued -> processing (5s) -> completed (20s)
-    For engine=runway: stays queued until PATCH status updates
+    For engine=runway: async processing via Runway API -> uploads to Supabase Storage
     """
     request_id = getattr(request.state, "request_id", "unknown")
 
@@ -299,6 +300,17 @@ async def create_video_task(
         f"[{request_id}] POST /api/video-tasks: "
         f"title=\"{title_log}\" prompt=\"{prompt_log}\" engine={request_body.engine.value}"
     )
+
+    # Validate sourceImageUrl is required for runway engine
+    if request_body.engine == VideoEngine.runway and not request_body.sourceImageUrl:
+        logger.warning(f"[{request_id}] Missing sourceImageUrl for runway engine")
+        return error_response(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="sourceImageUrl is required when engine=runway",
+            request_id=request_id,
+            details={"field": "sourceImageUrl", "engine": "runway"},
+        )
 
     # Check idempotency if key provided
     if idempotency_key:
@@ -355,10 +367,21 @@ async def create_video_task(
         }
         store_idempotency(idempotency_key, payload, task.id)
 
-    # Schedule background processing only for mock engine
+    # Schedule background processing based on engine
     if request_body.engine == VideoEngine.mock:
         asyncio.create_task(simulate_task_processing(task.id, video_task_service))
         logger.info(f"[{request_id}] Scheduled background processing for task {task.id} (engine=mock)")
+    elif request_body.engine == VideoEngine.runway:
+        asyncio.create_task(
+            process_runway_task(
+                task_id=task.id,
+                prompt=request_body.prompt,
+                source_image_url=request_body.sourceImageUrl,
+                service=video_task_service,
+                request_id=request_id,
+            )
+        )
+        logger.info(f"[{request_id}] Scheduled Runway processing for task {task.id}")
 
     # Add debug info
     task.debug = DebugInfo(requestId=request_id)
