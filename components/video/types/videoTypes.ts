@@ -33,7 +33,7 @@ export const VIDEO_STATUS_CONFIG: Record<
     className: "text-gray-400",
   },
   processing: {
-    label: "Processing…",
+    label: "Processing",
     className: "text-yellow-400",
   },
   completed: {
