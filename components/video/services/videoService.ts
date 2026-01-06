@@ -31,8 +31,7 @@ function resolveVideoUrl(status: VideoStatus): string | null {
 }
 
 function parseVideo(raw: any): Video {
-  console.log(status);
-  console.log(raw.status);
+ 
   return {
     id: raw.id,
     title: raw.title,

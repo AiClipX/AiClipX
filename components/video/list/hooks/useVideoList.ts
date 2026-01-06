@@ -70,15 +70,23 @@ export function useVideoList() {
   /* =====================
      FETCH PAGE
   ===================== */
-  const fetchPage = async (pageIndex: number, force = false) => {
-    // setLoading(true);
+  const fetchPage = async (
+    pageIndex: number,
+    force = false,
+    silent = false // 👈 thêm flag
+  ) => {
+    if (!silent) {
+      setLoading(true);
+    }
     setTimeoutError(false);
 
     if (!force && pagesCache.current.has(pageIndex)) {
       setVideos(pagesCache.current.get(pageIndex)!);
       setCurrentPage(pageIndex);
       setHasNext(pageCursors.current.get(pageIndex) != null);
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
       return;
     }
 
@@ -119,29 +127,45 @@ export function useVideoList() {
       console.error(err);
       setTimeoutError(true);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
+  const isPollingRef = useRef(false);
 
   /* =====================
      POLLING (Queued / Processing)
+     👉 KHÔNG loading
   ===================== */
   useEffect(() => {
     if (debouncedSearch) return;
-
+  
     const hasCreating = videos.some((v) =>
       CREATING_STATUSES.includes(v.status)
     );
-
-    if (!hasCreating) return;
-
-    const interval = setInterval(() => {
-      pagesCache.current.delete(currentPage);
-      fetchPage(currentPage, true);
-    }, POLL_INTERVAL_MS);
-
-    return () => clearInterval(interval);
+  
+    // Start polling
+    if (hasCreating && !isPollingRef.current) {
+      isPollingRef.current = true;
+  
+      const interval = setInterval(() => {
+        pagesCache.current.delete(currentPage);
+        fetchPage(currentPage, true, true);
+      }, POLL_INTERVAL_MS);
+  
+      return () => {
+        clearInterval(interval);
+        isPollingRef.current = false;
+      };
+    }
+  
+    // Stop polling
+    if (!hasCreating && isPollingRef.current) {
+      isPollingRef.current = false;
+    }
   }, [videos, currentPage, debouncedSearch]);
+  
 
   /* =====================
      NAVIGATION

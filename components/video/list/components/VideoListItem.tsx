@@ -73,6 +73,43 @@ export function VideoListItem({ video }: Props) {
       setOpenDelete(false);
     }
   };
+  // const handleDownload = (e: React.MouseEvent) => {
+  //   e.stopPropagation(); 
+  
+  //   if (!video.url) {
+  //     showToast("Video URL not available", "error");
+  //     return;
+  //   }
+  
+  //   window.open(video.url, "_blank");
+  // };
+  const handleDownload = async (
+    e: React.MouseEvent,
+    video: Video
+  ) => {
+    e.stopPropagation();
+  
+    try {
+      showToast("Preparing download…", "success", 2000);
+  
+      const res = await fetch(video.url);
+      if (!res.ok) throw new Error("Download failed");
+  
+      const blob = await res.blob();
+  
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${video.title || "video"}-${video.id}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+  
+      URL.revokeObjectURL(a.href);
+    } catch {
+      showToast("Download failed", "error");
+    }
+  };
+  
 
   return (
     <>
@@ -134,7 +171,18 @@ export function VideoListItem({ video }: Props) {
             </span>
           </div>
 
-          <div className="flex justify-end mt-2">
+          <div className="flex justify-between items-center mt-2">
+            {/* Download */}
+            {video.status === "completed" && video.url && (
+  <button
+    onClick={(e) => handleDownload(e, video)}
+    className="text-xs underline text-blue-400 hover:text-blue-300"
+  >
+    Download
+  </button>
+)}
+
+            {/* Delete */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
