@@ -113,6 +113,18 @@ MIGRATE_PENDING_TO_QUEUED_SQL = """
 UPDATE video_tasks SET status = 'queued' WHERE status = 'pending';
 """
 
+# BE-ENGINE-002: Enable RLS for Supabase Security Advisor compliance
+# Split into separate statements for reliability
+ENABLE_RLS_VIDEO_TASKS_SQL = "ALTER TABLE video_tasks ENABLE ROW LEVEL SECURITY;"
+ENABLE_RLS_TTS_REQUESTS_SQL = "ALTER TABLE tts_requests ENABLE ROW LEVEL SECURITY;"
+
+# Policies: DROP IF EXISTS then CREATE (idempotent) - split for asyncpg
+DROP_POLICY_VIDEO_TASKS_SQL = "DROP POLICY IF EXISTS service_role_all_video_tasks ON video_tasks;"
+CREATE_POLICY_VIDEO_TASKS_SQL = "CREATE POLICY service_role_all_video_tasks ON video_tasks FOR ALL USING (true) WITH CHECK (true);"
+
+DROP_POLICY_TTS_REQUESTS_SQL = "DROP POLICY IF EXISTS service_role_all_tts_requests ON tts_requests;"
+CREATE_POLICY_TTS_REQUESTS_SQL = "CREATE POLICY service_role_all_tts_requests ON tts_requests FOR ALL USING (true) WITH CHECK (true);"
+
 # BE-DB-PERSIST-001: tts_requests table
 CREATE_TTS_REQUESTS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS tts_requests (
@@ -160,6 +172,16 @@ async def init_db():
     await database.execute(ADD_PROMPT_COLUMN_SQL)
     await database.execute(ADD_STG8_COLUMNS_SQL)
     await database.execute(MIGRATE_PENDING_TO_QUEUED_SQL)
+
+    # Enable RLS (BE-ENGINE-002: Supabase Security Advisor)
+    logger.info("Enabling RLS policies...")
+    await database.execute(ENABLE_RLS_VIDEO_TASKS_SQL)
+    await database.execute(ENABLE_RLS_TTS_REQUESTS_SQL)
+    await database.execute(DROP_POLICY_VIDEO_TASKS_SQL)
+    await database.execute(CREATE_POLICY_VIDEO_TASKS_SQL)
+    await database.execute(DROP_POLICY_TTS_REQUESTS_SQL)
+    await database.execute(CREATE_POLICY_TTS_REQUESTS_SQL)
+
     logger.info("Database tables ready")
 
 
