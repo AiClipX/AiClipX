@@ -203,8 +203,9 @@ class GenReq(BaseModel):
     use_broll: bool = True
     style: str = "douyin_vlog"
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
+    """Root endpoint - responds to both GET and HEAD (BE-ENGINE-002: Render health check)."""
     return {"message": f"AiClipX v{VERSION} backend OK"}
 
 @app.post("/generate", include_in_schema=False, deprecated=True)

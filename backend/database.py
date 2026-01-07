@@ -28,7 +28,12 @@ if "pooler.supabase.com:6543" in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace(":6543", ":5432")
     logger.info("Switched from Supabase pooler (6543) to direct connection (5432)")
 
-database = Database(DATABASE_URL)
+# Connection pool config (BE-ENGINE-002: prevent connection exhaustion)
+# Safe for Supabase free tier (~15-20 max connections)
+DB_POOL_MIN_SIZE = 1
+DB_POOL_MAX_SIZE = 5
+
+database = Database(DATABASE_URL, min_size=DB_POOL_MIN_SIZE, max_size=DB_POOL_MAX_SIZE)
 
 # Track database connection state
 _db_connected = False
@@ -134,7 +139,7 @@ async def init_db():
     """Initialize database connection and create tables if needed."""
     global _db_connected
 
-    logger.info("Connecting to database...")
+    logger.info(f"Connecting to database (pool: min={DB_POOL_MIN_SIZE}, max={DB_POOL_MAX_SIZE})...")
     await database.connect()
     _db_connected = True
     logger.info("Database connected successfully")

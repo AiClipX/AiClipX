@@ -283,10 +283,25 @@ class VideoTaskService:
         error_message: Optional[str],
     ) -> Optional[str]:
         """
-        Validate field constraints for each status.
+        Validate field constraints for each status (BE-ENGINE-002: strict state machine).
+
+        Rules:
+        - queued: progress=0, no videoUrl, no errorMessage
+        - processing: progress 1-99, no videoUrl, no errorMessage
+        - completed: progress=100, videoUrl required, no errorMessage
+        - failed: errorMessage required, no videoUrl, progress kept at failure point
+
         Returns error message if invalid, None if valid.
         """
-        if status == VideoTaskStatus.processing:
+        if status == VideoTaskStatus.queued:
+            if progress is not None and progress != 0:
+                return "progress must be 0 for queued status"
+            if video_url is not None:
+                return "videoUrl must be null for queued status"
+            if error_message is not None:
+                return "errorMessage must be null for queued status"
+
+        elif status == VideoTaskStatus.processing:
             if video_url is not None:
                 return "videoUrl must be null for processing status"
             if error_message is not None:
@@ -307,6 +322,7 @@ class VideoTaskService:
                 return "errorMessage is required for failed status"
             if video_url is not None:
                 return "videoUrl must be null for failed status"
+            # progress: no constraint - keep at failure point for observability
 
         return None
 
