@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
-"""TTS API router for Azure Text-to-Speech synthesis."""
+"""TTS API router for Azure Text-to-Speech synthesis (BE-AUTH-001: auth required)."""
 
 import logging
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 
-from database import database
 from models.tts import TTSRequest, TTSResponse
+from services.auth import AuthUser, get_current_user
+from services.supabase_client import get_user_client
 from services.azure_tts import (
     AzureTTSConfigError,
     AzureTTSError,
@@ -18,6 +19,8 @@ from services.supabase_storage import (
     SupabaseUploadError,
     upload_audio,
 )
+from services.ratelimit import limiter, RATE_LIMIT_TTS
+from services.error_response import error_response
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +60,14 @@ The generated audio is stored in Supabase storage and a URL is returned.
         },
     },
 )
-async def generate_tts(request: Request, body: TTSRequest) -> TTSResponse:
+@limiter.limit(RATE_LIMIT_TTS)
+async def generate_tts(
+    request: Request,
+    body: TTSRequest,
+    user: AuthUser = Depends(get_current_user),
+) -> TTSResponse:
     """
-    Generate speech audio from text using Azure TTS.
+    Generate speech audio from text using Azure TTS (BE-AUTH-001: auth required).
 
     - If `ssml` is provided, it is sent directly to Azure.
     - Otherwise, SSML is generated from `text`, `voice`, and `locale`.
@@ -69,7 +77,7 @@ async def generate_tts(request: Request, body: TTSRequest) -> TTSResponse:
 
     logger.info(
         f"[{request_id}] TTS request: text_len={len(body.text) if body.text else 0}, "
-        f"voice={body.voice}, ssml={'yes' if body.ssml else 'no'}"
+        f"voice={body.voice}, ssml={'yes' if body.ssml else 'no'}, user={user.id[:8]}..."
     )
 
     # Step 1: Synthesize audio with Azure TTS
@@ -84,31 +92,37 @@ async def generate_tts(request: Request, body: TTSRequest) -> TTSResponse:
         )
     except AzureTTSConfigError as e:
         logger.error(f"[{request_id}] Azure config error: {e}")
-        raise HTTPException(
+        return error_response(
             status_code=500,
-            detail=str(e),
+            code="AZURE_CONFIG_ERROR",
+            message=str(e),
+            request_id=request_id,
         )
     except AzureTTSError as e:
         logger.error(f"[{request_id}] Azure TTS error: {e}")
 
         # Map Azure errors to appropriate HTTP status
         if e.status_code in (401, 403):
-            raise HTTPException(
+            return error_response(
                 status_code=502,
-                detail="Azure authentication failed",
+                code="AZURE_AUTH_ERROR",
+                message="Azure authentication failed",
+                request_id=request_id,
             )
         elif e.status_code == 429:
-            headers = {}
-            if e.retry_after:
-                headers["Retry-After"] = str(e.retry_after)
-            raise HTTPException(
+            return error_response(
                 status_code=503,
-                detail=f"Azure TTS rate limited. Retry after {e.retry_after or 'unknown'} seconds.",
+                code="AZURE_RATE_LIMITED",
+                message=f"Azure TTS rate limited. Retry after {e.retry_after or 'unknown'} seconds.",
+                request_id=request_id,
+                details={"retryAfter": e.retry_after},
             )
         else:
-            raise HTTPException(
+            return error_response(
                 status_code=502,
-                detail=f"Azure TTS failed: {e}",
+                code="AZURE_TTS_ERROR",
+                message=f"Azure TTS failed: {e}",
+                request_id=request_id,
             )
 
     # Step 2: Upload to Supabase storage
@@ -120,38 +134,39 @@ async def generate_tts(request: Request, body: TTSRequest) -> TTSResponse:
         )
     except SupabaseConfigError as e:
         logger.error(f"[{request_id}] Supabase config error: {e}")
-        raise HTTPException(
+        return error_response(
             status_code=500,
-            detail=str(e),
+            code="SUPABASE_CONFIG_ERROR",
+            message=str(e),
+            request_id=request_id,
         )
     except SupabaseUploadError as e:
         logger.error(f"[{request_id}] Supabase upload error: {e}")
-        raise HTTPException(
+        return error_response(
             status_code=502,
-            detail=f"Failed to store audio: {e}",
+            code="STORAGE_UPLOAD_ERROR",
+            message=f"Failed to store audio: {e}",
+            request_id=request_id,
         )
 
-    # Step 3: Persist to database (BE-DB-PERSIST-001)
+    # Step 3: Persist to database (BE-DB-PERSIST-001 + BE-AUTH-001: include user_id)
     tts_record_id = f"tts_{uuid4().hex[:12]}"
     try:
-        await database.execute(
-            """
-            INSERT INTO tts_requests (id, request_id, locale, voice, text_len, ssml, audio_url, bytes, format)
-            VALUES (:id, :request_id, :locale, :voice, :text_len, :ssml, :audio_url, :bytes, :format)
-            """,
-            {
-                "id": tts_record_id,
-                "request_id": request_id,
-                "locale": body.locale or "en-US",
-                "voice": tts_result.voice,
-                "text_len": len(body.text) if body.text else 0,
-                "ssml": body.ssml,
-                "audio_url": upload_result.url,
-                "bytes": upload_result.bytes,
-                "format": tts_result.format,
-            },
-        )
-        logger.info(f"[{request_id}] TTS persisted to DB: id={tts_record_id}")
+        # BE-AUTH-001: Use user_client for RLS enforcement
+        user_client = get_user_client(user.jwt_token)
+        user_client.table("tts_requests").insert({
+            "id": tts_record_id,
+            "user_id": user.id,
+            "request_id": request_id,
+            "locale": body.locale or "en-US",
+            "voice": tts_result.voice,
+            "text_len": len(body.text) if body.text else 0,
+            "ssml": body.ssml,
+            "audio_url": upload_result.url,
+            "bytes": upload_result.bytes,
+            "format": tts_result.format,
+        }).execute()
+        logger.info(f"[{request_id}] TTS persisted to DB: id={tts_record_id}, user_id={user.id[:8]}...")
     except Exception as e:
         # Log but don't fail - persistence is secondary to serving the request
         logger.error(f"[{request_id}] Failed to persist TTS to DB: {e}")

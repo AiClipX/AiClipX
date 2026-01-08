@@ -1,12 +1,19 @@
 # -*- coding: utf-8 -*-
+import json
+import logging
+import os
+import random
 from pathlib import Path
-import os, random, requests, io, json
 from typing import Optional
+
+import requests
 
 # MoviePy
 from moviepy.editor import (
     AudioFileClip, VideoFileClip, ColorClip, CompositeVideoClip
 )
+
+logger = logging.getLogger(__name__)
 
 # TTS: 优先 ElevenLabs，失败回退 gTTS
 def synth_tts(script: str, language: str, out_mp3: str) -> str:
@@ -29,7 +36,7 @@ def synth_tts(script: str, language: str, out_mp3: str) -> str:
             Path(out_mp3).write_bytes(r.content)
             return out_mp3
         except Exception as e:
-            print("[TTS] ElevenLabs failed, fallback to gTTS:", e)
+            logger.warning(f"[TTS] ElevenLabs failed, fallback to gTTS: {e}")
 
     # --- gTTS 回退 ---
     from gtts import gTTS
@@ -63,7 +70,7 @@ def fetch_broll(query: str, duration: float) -> Optional[str]:
         Path(tmp_path).write_bytes(vr.content)
         return tmp_path
     except Exception as e:
-        print("[BROLL] fetch failed:", e)
+        logger.warning(f"[BROLL] fetch failed: {e}")
         return None
 
 
@@ -122,7 +129,7 @@ def generate_video(
         ).set_position(("center", "bottom")).set_duration(duration)
         final = CompositeVideoClip([clip, txt]).set_audio(audio_clip)
     except Exception as e:
-        print("[Caption] skipped:", e)
+        logger.warning(f"[Caption] skipped: {e}")
         final = CompositeVideoClip([clip]).set_audio(audio_clip)
 
     # 4) 输出
@@ -137,32 +144,7 @@ def generate_video(
         if broll_path and Path(broll_path).exists():
             Path(broll_path).unlink(missing_ok=True)
         Path(audio_path).unlink(missing_ok=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"[Cleanup] Failed to clean up temp files: {e}")
 
     return video_path
-# 真正生成视频
-def generate_video(script: str, language: str = "zh") -> str:
-    from datetime import datetime
-
-    # 输出文件名
-    output_dir = Path("outputs")
-    output_dir.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_mp3 = output_dir / f"speech_{timestamp}.mp3"
-    out_mp4 = output_dir / f"video_{timestamp}.mp4"
-
-    # 1️⃣ 语音合成
-    synth_tts(script, language, str(out_mp3))
-
-    # 2️⃣ 制作纯色背景
-    color_clip = ColorClip(size=(1280, 720), color=(0, 0, 0), duration=10)
-
-    # 3️⃣ 加入语音
-    audio_clip = AudioFileClip(str(out_mp3))
-    color_clip = color_clip.set_audio(audio_clip).set_duration(audio_clip.duration)
-
-    # 4️⃣ 输出视频
-    color_clip.write_videofile(str(out_mp4), fps=24, codec="libx264", audio_codec="aac")
-
-    return str(out_mp4)

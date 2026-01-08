@@ -1,37 +1,35 @@
 """
 Idempotency cache for preventing duplicate task creation.
-Simple in-memory implementation with TTL.
+Uses bounded TTLCache to prevent unbounded memory growth.
 """
 import hashlib
+import json
 import logging
-import time
 from typing import Optional
+
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
 # TTL for idempotency keys (60 minutes)
 IDEMPOTENCY_TTL_SECONDS = 60 * 60
 
-# In-memory cache: {idempotency_key: {"task_id": str, "payload_hash": str, "expires": float}}
-_idempotency_cache: dict = {}
+# Max cache entries to prevent unbounded memory growth
+IDEMPOTENCY_MAX_ENTRIES = 10000
+
+# Bounded TTL cache: auto-expires entries and limits max size
+# Structure: {idempotency_key: {"task_id": str, "payload_hash": str}}
+_idempotency_cache: TTLCache = TTLCache(
+    maxsize=IDEMPOTENCY_MAX_ENTRIES,
+    ttl=IDEMPOTENCY_TTL_SECONDS,
+)
 
 
 def _hash_payload(payload: dict) -> str:
     """Create a hash of the request payload for comparison."""
     # Sort keys for consistent hashing
-    import json
     payload_str = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(payload_str.encode()).hexdigest()[:16]
-
-
-def _cleanup_expired():
-    """Remove expired entries from cache."""
-    now = time.time()
-    expired_keys = [k for k, v in _idempotency_cache.items() if v["expires"] < now]
-    for key in expired_keys:
-        del _idempotency_cache[key]
-    if expired_keys:
-        logger.info(f"[IDEMP] Cleaned up {len(expired_keys)} expired keys")
 
 
 class IdempotencyResult:
@@ -62,8 +60,7 @@ def check_idempotency(key: str, payload: dict) -> IdempotencyResult:
         - hit=False, mismatch=True if key exists but payload differs
         - hit=False, mismatch=False if key not found (new key)
     """
-    _cleanup_expired()
-
+    # TTLCache handles expiration automatically
     if key not in _idempotency_cache:
         logger.info(f"[IDEMP] Cache miss for key: {key[:8]}...")
         return IdempotencyResult(hit=False, mismatch=False)
@@ -88,9 +85,12 @@ def store_idempotency(key: str, payload: dict, task_id: str):
         payload: Request body as dict
         task_id: Created task ID
     """
+    # TTLCache handles expiration automatically
     _idempotency_cache[key] = {
         "task_id": task_id,
         "payload_hash": _hash_payload(payload),
-        "expires": time.time() + IDEMPOTENCY_TTL_SECONDS,
     }
-    logger.info(f"[IDEMP] Stored key: {key[:8]}... → task_id: {task_id} (TTL: 60min)")
+    logger.info(
+        f"[IDEMP] Stored key: {key[:8]}... → task_id: {task_id} "
+        f"(TTL: 60min, cache size: {len(_idempotency_cache)}/{IDEMPOTENCY_MAX_ENTRIES})"
+    )
