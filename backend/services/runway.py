@@ -29,6 +29,28 @@ DEFAULT_RATIO = "1280:720"
 # Timeout for HTTP requests (seconds)
 HTTP_TIMEOUT = 30.0
 
+# Shared HTTP client for connection pooling (singleton)
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+def get_http_client() -> httpx.AsyncClient:
+    """Get or create shared HTTP client for connection pooling."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=HTTP_TIMEOUT,
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+        )
+    return _http_client
+
+
+async def close_http_client():
+    """Close the shared HTTP client (call on shutdown)."""
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+        _http_client = None
+
 
 class RunwayConfigError(Exception):
     """Raised when Runway API is not properly configured."""
@@ -130,36 +152,36 @@ async def create_image_to_video_task(
         "ratio": ratio,
     }
 
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        try:
-            response = await client.post(
-                f"{RUNWAY_API_BASE}/image_to_video",
-                headers=_get_headers(),
-                json=payload,
+    client = get_http_client()
+    try:
+        response = await client.post(
+            f"{RUNWAY_API_BASE}/image_to_video",
+            headers=_get_headers(),
+            json=payload,
+        )
+
+        if response.status_code != 200 and response.status_code != 201:
+            error_detail = response.text[:200] if response.text else "Unknown error"
+            logger.error(
+                f"[{request_id}] Runway API error: status={response.status_code}, detail={error_detail}"
+            )
+            raise RunwayAPIError(
+                f"Runway API error: {error_detail}",
+                status_code=response.status_code,
             )
 
-            if response.status_code != 200 and response.status_code != 201:
-                error_detail = response.text[:200] if response.text else "Unknown error"
-                logger.error(
-                    f"[{request_id}] Runway API error: status={response.status_code}, detail={error_detail}"
-                )
-                raise RunwayAPIError(
-                    f"Runway API error: {error_detail}",
-                    status_code=response.status_code,
-                )
+        data = response.json()
+        task_id = data.get("id")
 
-            data = response.json()
-            task_id = data.get("id")
+        if not task_id:
+            raise RunwayAPIError("Runway API did not return task ID")
 
-            if not task_id:
-                raise RunwayAPIError("Runway API did not return task ID")
+        logger.info(f"[{request_id}] Runway task created: task_id={task_id}")
+        return task_id
 
-            logger.info(f"[{request_id}] Runway task created: task_id={task_id}")
-            return task_id
-
-        except httpx.RequestError as e:
-            logger.error(f"[{request_id}] Runway request failed: {e}")
-            raise RunwayAPIError(f"Failed to connect to Runway API: {e}")
+    except httpx.RequestError as e:
+        logger.error(f"[{request_id}] Runway request failed: {e}")
+        raise RunwayAPIError(f"Failed to connect to Runway API: {e}")
 
 
 async def get_task_status(
@@ -180,64 +202,64 @@ async def get_task_status(
         RunwayConfigError: If API key is not configured
         RunwayAPIError: If API request fails
     """
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        try:
-            response = await client.get(
-                f"{RUNWAY_API_BASE}/tasks/{task_id}",
-                headers=_get_headers(),
+    client = get_http_client()
+    try:
+        response = await client.get(
+            f"{RUNWAY_API_BASE}/tasks/{task_id}",
+            headers=_get_headers(),
+        )
+
+        if response.status_code != 200:
+            error_detail = response.text[:200] if response.text else "Unknown error"
+            logger.error(
+                f"[{request_id}] Runway get task error: status={response.status_code}, detail={error_detail}"
+            )
+            raise RunwayAPIError(
+                f"Failed to get task status: {error_detail}",
+                status_code=response.status_code,
             )
 
-            if response.status_code != 200:
-                error_detail = response.text[:200] if response.text else "Unknown error"
-                logger.error(
-                    f"[{request_id}] Runway get task error: status={response.status_code}, detail={error_detail}"
-                )
-                raise RunwayAPIError(
-                    f"Failed to get task status: {error_detail}",
-                    status_code=response.status_code,
-                )
+        data = response.json()
+        status_str = data.get("status", "PENDING")
 
-            data = response.json()
-            status_str = data.get("status", "PENDING")
-
-            # Map status to progress
+        # Map status to progress
+        progress = 0
+        if status_str == "RUNNING":
+            progress = 50
+        elif status_str == "SUCCEEDED":
+            progress = 100
+        elif status_str == "FAILED" or status_str == "CANCELED":
             progress = 0
-            if status_str == "RUNNING":
-                progress = 50
-            elif status_str == "SUCCEEDED":
-                progress = 100
-            elif status_str == "FAILED" or status_str == "CANCELED":
-                progress = 0
 
-            # Get output URL if succeeded
-            output_url = None
-            if status_str == "SUCCEEDED":
-                output = data.get("output", [])
-                if output and len(output) > 0:
-                    output_url = output[0]  # First output URL
+        # Get output URL if succeeded
+        output_url = None
+        if status_str == "SUCCEEDED":
+            output = data.get("output", [])
+            if output and len(output) > 0:
+                output_url = output[0]  # First output URL
 
-            # Get error message if failed
-            error_message = None
-            if status_str == "FAILED":
-                error_message = data.get("failure", data.get("failureCode", "Unknown error"))
-            elif status_str == "CANCELED":
-                error_message = "Task was canceled"
+        # Get error message if failed
+        error_message = None
+        if status_str == "FAILED":
+            error_message = data.get("failure", data.get("failureCode", "Unknown error"))
+        elif status_str == "CANCELED":
+            error_message = "Task was canceled"
 
-            logger.info(
-                f"[{request_id}] Runway task {task_id}: status={status_str}, progress={progress}"
-            )
+        logger.info(
+            f"[{request_id}] Runway task {task_id}: status={status_str}, progress={progress}"
+        )
 
-            return RunwayTaskResult(
-                task_id=task_id,
-                status=RunwayTaskStatus(status_str),
-                progress=progress,
-                output_url=output_url,
-                error_message=error_message,
-            )
+        return RunwayTaskResult(
+            task_id=task_id,
+            status=RunwayTaskStatus(status_str),
+            progress=progress,
+            output_url=output_url,
+            error_message=error_message,
+        )
 
-        except httpx.RequestError as e:
-            logger.error(f"[{request_id}] Runway get task failed: {e}")
-            raise RunwayAPIError(f"Failed to get task status: {e}")
+    except httpx.RequestError as e:
+        logger.error(f"[{request_id}] Runway get task failed: {e}")
+        raise RunwayAPIError(f"Failed to get task status: {e}")
 
 
 def is_runway_configured() -> bool:

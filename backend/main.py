@@ -17,12 +17,18 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from contextlib import asynccontextmanager
+
+from services.ratelimit import limiter
 
 from database import close_db, init_db, check_db_health
 from generate_video import generate_video
 from routers import video_tasks, tts
+from services.supabase_client import init_supabase, is_supabase_configured
+from services.runway import close_http_client
 
 
 @asynccontextmanager
@@ -30,8 +36,16 @@ async def lifespan(app: FastAPI):
     """Manage application lifecycle - startup and shutdown."""
     # Startup - database is REQUIRED (BE-DB-PERSIST-001)
     await init_db()
+
+    # BE-AUTH-001: Initialize Supabase client for auth
+    if is_supabase_configured():
+        init_supabase()
+    else:
+        logging.warning("Supabase not configured - auth will not work")
+
     yield
     # Shutdown
+    await close_http_client()
     await close_db()
 
 # Setup logging
@@ -53,6 +67,10 @@ app = FastAPI(
     servers=openapi_servers if openapi_servers else None,
     description="AiClipX Backend API - Video generation and Text-to-Speech services",
 )
+
+# Attach rate limiter to app state and add exception handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Request ID middleware (BE-STG8: reuse client's X-Request-Id if provided)
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -203,8 +221,9 @@ class GenReq(BaseModel):
     use_broll: bool = True
     style: str = "douyin_vlog"
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
+    """Root endpoint - responds to both GET and HEAD (BE-ENGINE-002: Render health check)."""
     return {"message": f"AiClipX v{VERSION} backend OK"}
 
 @app.post("/generate", include_in_schema=False, deprecated=True)
