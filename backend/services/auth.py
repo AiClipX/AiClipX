@@ -17,6 +17,41 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
 
+
+def mask_token(token: str, visible_chars: int = 12) -> str:
+    """
+    Mask a JWT token for safe logging.
+
+    Args:
+        token: JWT token string (with or without 'Bearer ' prefix)
+        visible_chars: Number of characters to show (default 12)
+
+    Returns:
+        Masked token string, e.g., "Bearer eyJhbGciOi..."
+
+    Example:
+        >>> mask_token("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx")
+        'eyJhbGciOiJI...'
+        >>> mask_token("Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxx")
+        'Bearer eyJhbGciOiJI...'
+    """
+    if not token:
+        return "<empty>"
+
+    # Handle "Bearer " prefix
+    if token.startswith("Bearer "):
+        prefix = "Bearer "
+        actual_token = token[7:]
+    else:
+        prefix = ""
+        actual_token = token
+
+    if len(actual_token) <= visible_chars:
+        return f"{prefix}{actual_token}"
+
+    return f"{prefix}{actual_token[:visible_chars]}..."
+
+
 # Supabase JWT secret (from project settings)
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()
 

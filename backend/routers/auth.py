@@ -40,11 +40,15 @@ class AuthResponse(BaseModel):
     user: dict
 
 
-class UserResponse(BaseModel):
-    """User info response."""
+class UserInfo(BaseModel):
+    """User info."""
     id: str
     email: Optional[str] = None
-    role: Optional[str] = None
+
+
+class MeResponse(BaseModel):
+    """Response for /api/auth/me endpoint."""
+    user: UserInfo
 
 
 class ErrorResponse(BaseModel):
@@ -238,7 +242,7 @@ async def signin(request: Request, body: SignInRequest):
 
 @router.get(
     "/me",
-    response_model=UserResponse,
+    response_model=MeResponse,
     responses={
         200: {"description": "Current user info"},
         401: {"description": "Not authenticated", "model": ErrorResponse},
@@ -254,7 +258,8 @@ async def get_me(request: Request, user: AuthUser = Depends(get_current_user)):
     logger.info(f"[{request_id}] Get me: user_id={user.id[:8]}...")
 
     return {
-        "id": user.id,
-        "email": user.email,
-        "role": user.role,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+        }
     }
