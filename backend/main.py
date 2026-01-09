@@ -99,8 +99,8 @@ CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(",") if orig
     "https://www.aiclipx.app",
 ]
 
-# Add localhost for development if LOCAL_DEV=true
-if os.getenv("LOCAL_DEV", "").lower() == "true":
+# Add localhost for development if LOCAL_DEV=true or ALLOW_LOCALHOST_CORS=true
+if os.getenv("LOCAL_DEV", "").lower() == "true" or os.getenv("ALLOW_LOCALHOST_CORS", "").lower() == "true":
     CORS_ORIGINS.extend(["http://localhost:3000", "http://127.0.0.1:3000"])
 
 logger.info(f"CORS origins: {CORS_ORIGINS}")
@@ -112,8 +112,8 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel preview deployments
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-Id", "Accept"],
     expose_headers=["X-Request-Id"],
 )
 
