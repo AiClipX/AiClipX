@@ -34,6 +34,41 @@ from services.supabase_storage import (
 
 logger = logging.getLogger(__name__)
 
+
+def safe_parse_datetime(dt_str: str) -> datetime:
+    """
+    Safely parse ISO format datetime strings with various timezone formats.
+
+    Handles:
+    - '2024-01-01T12:00:00Z' (Z suffix)
+    - '2024-01-01T12:00:00+00:00' (timezone offset)
+    - '2024-01-01T12:00:00.123456+00:00' (microseconds)
+    - '2024-01-01T12:00:00.1234567+00:00' (extra precision - Supabase)
+    """
+    if not dt_str:
+        return datetime.now(timezone.utc)
+
+    try:
+        # Replace 'Z' with '+00:00' for Python compatibility
+        dt_str = dt_str.replace("Z", "+00:00")
+
+        # Handle Supabase timestamps with >6 decimal places
+        import re
+        match = re.match(r"(.+\.\d{1,6})(\d*)([+-]\d{2}:\d{2})$", dt_str)
+        if match:
+            base, extra, tz = match.groups()
+            # Truncate to 6 decimal places (microseconds)
+            decimal_part = base.split(".")[-1]
+            if len(decimal_part) < 6:
+                base = base[:-len(decimal_part)] + decimal_part.ljust(6, "0")
+            dt_str = base + tz
+
+        return datetime.fromisoformat(dt_str)
+    except (ValueError, AttributeError) as e:
+        logger.warning(f"Failed to parse datetime '{dt_str}': {e}, using current time")
+        return datetime.now(timezone.utc)
+
+
 # State machine: allowed transitions
 ALLOWED_TRANSITIONS = {
     VideoTaskStatus.queued: [VideoTaskStatus.processing, VideoTaskStatus.failed],
@@ -72,7 +107,7 @@ def decode_cursor(cursor: str) -> Optional[Tuple[datetime, str, Optional[str], O
             return None
 
         if len(parts) == 5:
-            created_at = datetime.fromisoformat(parts[0])
+            created_at = safe_parse_datetime(parts[0])
             task_id = parts[1]
             q = parts[2] if parts[2] else None
             status = parts[3] if parts[3] else None
@@ -419,31 +454,12 @@ class VideoTaskService:
                 progress = 0
 
         # Handle datetime parsing from string (Supabase returns ISO strings)
-        # Note: Python 3.10 and earlier require exactly 0, 3, or 6 decimal places
-        # Supabase may return 5 decimal places, so we normalize to 6
-        def parse_datetime(dt_str: str) -> datetime:
-            """Parse ISO datetime string with variable-length microseconds."""
-            if not dt_str:
-                return None
-            dt_str = dt_str.replace("Z", "+00:00")
-            # Normalize microseconds to 6 digits for Python 3.10 compatibility
-            import re
-            match = re.match(r"(.+\.\d{1,6})(\d*)([+-]\d{2}:\d{2})$", dt_str)
-            if match:
-                base, extra, tz = match.groups()
-                # Pad or truncate to 6 decimal places
-                decimal_part = base.split(".")[-1]
-                if len(decimal_part) < 6:
-                    base = base[:-len(decimal_part)] + decimal_part.ljust(6, "0")
-                dt_str = base + tz
-            return datetime.fromisoformat(dt_str)
-
         created_at = row.get("created_at")
         updated_at = row.get("updated_at")
         if isinstance(created_at, str):
-            created_at = parse_datetime(created_at)
+            created_at = safe_parse_datetime(created_at)
         if isinstance(updated_at, str):
-            updated_at = parse_datetime(updated_at)
+            updated_at = safe_parse_datetime(updated_at)
 
         return VideoTask(
             id=row["id"],
@@ -486,10 +502,16 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService):
     except Exception as e:
         logger.error(f"[BG] Error processing task {task_id}: {e}")
         try:
+            # Sanitize error message - don't expose internal details
+            error_msg = "Video processing failed. Please try again."
+            if "timeout" in str(e).lower():
+                error_msg = "Processing timed out. Please try again."
+            elif "network" in str(e).lower() or "connection" in str(e).lower():
+                error_msg = "Network error during processing. Please try again."
             service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
-                error_message=f"Processing error: {str(e)}",
+                error_message=error_msg,
             )
         except Exception as update_err:
             logger.error(f"[BG] Failed to update task {task_id} to failed: {update_err}")
@@ -607,8 +629,9 @@ async def process_runway_task(
         logger.info(f"[{request_id}] Task {task_id} completed with videoUrl: {supabase_url[:50]}...")
 
     except (RunwayAPIError, RunwayConfigError) as e:
-        error_msg = f"Runway error: {str(e)}"
-        logger.error(f"[{request_id}] {error_msg}")
+        logger.error(f"[{request_id}] Runway error for task {task_id}: {e}")
+        # Sanitize: don't expose internal API details
+        error_msg = "Video generation service error. Please try again later."
         try:
             service.update_task_status(
                 task_id,
@@ -619,8 +642,9 @@ async def process_runway_task(
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
     except (SupabaseUploadError, SupabaseConfigError) as e:
-        error_msg = f"Storage error: {str(e)}"
-        logger.error(f"[{request_id}] {error_msg}")
+        logger.error(f"[{request_id}] Storage error for task {task_id}: {e}")
+        # Sanitize: don't expose storage details
+        error_msg = "Failed to save video. Please try again later."
         try:
             service.update_task_status(
                 task_id,
@@ -631,8 +655,9 @@ async def process_runway_task(
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
     except Exception as e:
-        error_msg = f"Processing error: {str(e)}"
         logger.error(f"[{request_id}] Unexpected error in Runway processing: {e}")
+        # Sanitize: generic error message for unexpected errors
+        error_msg = "Video processing failed. Please try again."
         try:
             service.update_task_status(
                 task_id,
