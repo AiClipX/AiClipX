@@ -92,12 +92,12 @@ async def signup(request: Request, body: SignUpRequest):
     try:
         client = get_service_client()
 
-        # Sign up using Supabase Auth Admin API (auto-confirm for MVP)
-        # Using admin API to bypass email confirmation
-        response = client.auth.admin.create_user({
+        # Sign up using regular Supabase Auth API
+        # Note: Requires "Confirm email" to be DISABLED in Supabase Auth settings
+        # or user will need to confirm email before signing in
+        response = client.auth.sign_up({
             "email": body.email,
             "password": body.password,
-            "email_confirm": True,  # Auto-confirm for MVP
         })
 
         # Check for errors
@@ -109,13 +109,18 @@ async def signup(request: Request, body: SignUpRequest):
             )
 
         user = response.user
+        session = response.session
         logger.info(f"[{request_id}] User created: user_id={user.id[:8]}...")
 
-        # Admin API doesn't return session, so sign in to get access token
-        signin_response = client.auth.sign_in_with_password({
-            "email": body.email,
-            "password": body.password,
-        })
+        # If session is returned, user is auto-confirmed
+        if session:
+            signin_response = response
+        else:
+            # Try to sign in (works if email confirmation is disabled)
+            signin_response = client.auth.sign_in_with_password({
+                "email": body.email,
+                "password": body.password,
+            })
 
         if signin_response.session is None:
             logger.error(f"[{request_id}] Failed to get session after signup")
@@ -146,10 +151,9 @@ async def signup(request: Request, body: SignUpRequest):
         logger.error(f"[{request_id}] Signup error: {error_msg}")
 
         # Handle specific Supabase errors
-        # "User not allowed" is returned by Admin API when email already exists (403)
-        # "already been registered" is returned by regular signup API
+        # Regular signup API returns "already been registered" for duplicate emails
         error_lower = error_msg.lower()
-        if any(phrase in error_lower for phrase in ["already registered", "already exists", "user not allowed", "already been registered"]):
+        if any(phrase in error_lower for phrase in ["already registered", "already exists", "already been registered"]):
             return error_response(
                 request, 409, "EMAIL_EXISTS",
                 "An account with this email already exists"
