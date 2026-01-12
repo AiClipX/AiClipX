@@ -192,11 +192,12 @@ async def get_video_tasks(
                 details={"hint": "Remove cursor parameter when changing q, status, or sort"},
             )
 
-    # BE-AUTH-001: Use user_client for RLS enforcement
+    # BE-AUTH-001: Use user_client for RLS enforcement + explicit user_id filter
     user_client = get_user_client(user.jwt_token)
 
     tasks, next_cursor = video_task_service.get_tasks(
         client=user_client,
+        user_id=user.id,
         limit=limit,
         cursor_time=cursor_time,
         cursor_id=cursor_id,
@@ -332,7 +333,7 @@ async def create_video_task(
         # Cache hit with matching payload → return existing task
         if idemp_result.hit and idemp_result.task_id:
             logger.info(f"[{request_id}] Idempotency hit: returning existing task {idemp_result.task_id}")
-            task = video_task_service.get_task_by_id(user_client, idemp_result.task_id)
+            task = video_task_service.get_task_by_id(user_client, idemp_result.task_id, user_id=user.id)
             if task:
                 task.debug = DebugInfo(requestId=request_id)
                 return task
@@ -454,11 +455,11 @@ async def update_task_status(
         f"status={request_body.status.value} progress={request_body.progress}"
     )
 
-    # BE-AUTH-001: Use user_client for RLS enforcement
+    # BE-AUTH-001: Use user_client for RLS enforcement + explicit user_id filter
     user_client = get_user_client(user.jwt_token)
 
-    # Get current task (RLS enforced - returns None if not owned by user)
-    task = video_task_service.get_task_by_id(user_client, task_id)
+    # Get current task (explicit user_id filter - returns None if not owned by user)
+    task = video_task_service.get_task_by_id(user_client, task_id, user_id=user.id)
     if not task:
         logger.warning(f"[{request_id}] Task not found: {task_id}")
         return error_response(
@@ -543,10 +544,10 @@ async def get_video_task(
     request_id = getattr(request.state, "request_id", "unknown")
     logger.info(f"[{request_id}] Fetch video task {task_id}")
 
-    # BE-AUTH-001: Use user_client for RLS enforcement
+    # BE-AUTH-001: Use user_client for RLS enforcement + explicit user_id filter
     user_client = get_user_client(user.jwt_token)
 
-    task = video_task_service.get_task_by_id(user_client, task_id)
+    task = video_task_service.get_task_by_id(user_client, task_id, user_id=user.id)
 
     if not task:
         logger.info(f"[{request_id}] Task not found: {task_id}")
@@ -587,11 +588,11 @@ async def delete_video_task(
     request_id = getattr(request.state, "request_id", "unknown")
     logger.info(f"[{request_id}] DELETE video task {task_id}")
 
-    # BE-AUTH-001: Use user_client for RLS enforcement
+    # BE-AUTH-001: Use user_client for RLS enforcement + explicit user_id filter
     user_client = get_user_client(user.jwt_token)
 
-    # Check if task exists (RLS enforced)
-    task = video_task_service.get_task_by_id(user_client, task_id)
+    # Check if task exists (explicit user_id filter)
+    task = video_task_service.get_task_by_id(user_client, task_id, user_id=user.id)
     if not task:
         logger.info(f"[{request_id}] Task not found: {task_id}")
         return error_response(
@@ -602,8 +603,8 @@ async def delete_video_task(
             details={"taskId": task_id},
         )
 
-    # Delete task (RLS enforced)
-    video_task_service.delete_task(user_client, task_id)
+    # Delete task (explicit user_id filter)
+    video_task_service.delete_task(user_client, task_id, user_id=user.id)
     logger.info(f"[{request_id}] Deleted task {task_id}")
 
     return Response(status_code=204)

@@ -139,6 +139,7 @@ class VideoTaskService:
     def get_tasks(
         self,
         client: Client,
+        user_id: str,
         limit: int = 20,
         cursor_time: Optional[datetime] = None,
         cursor_id: Optional[str] = None,
@@ -147,10 +148,11 @@ class VideoTaskService:
         sort: str = "createdAt_desc",
     ) -> Tuple[List[VideoTask], Optional[str]]:
         """
-        Get paginated list of video tasks from database (RLS enforced).
+        Get paginated list of video tasks from database (RLS + explicit user_id filter).
 
         Args:
             client: Supabase client (user_client for RLS)
+            user_id: User ID from JWT (explicit filter, defense-in-depth)
             limit: Number of tasks to return (1-100)
             cursor_time: Decoded cursor timestamp
             cursor_id: Decoded cursor task ID
@@ -175,6 +177,9 @@ class VideoTaskService:
             "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
             "source_image_url, engine, params, progress, user_id"
         )
+
+        # BE-AUTH-001: Explicit user_id filter (defense-in-depth, not relying solely on RLS)
+        query = query.eq("user_id", user_id)
 
         # Apply cursor pagination
         if cursor_time and cursor_id:
@@ -227,21 +232,31 @@ class VideoTaskService:
 
         return tasks, next_cursor
 
-    def get_task_by_id(self, client: Client, task_id: str) -> Optional[VideoTask]:
+    def get_task_by_id(
+        self, client: Client, task_id: str, user_id: Optional[str] = None
+    ) -> Optional[VideoTask]:
         """
-        Get a single video task by ID from database (RLS enforced).
+        Get a single video task by ID from database (RLS + explicit user_id filter).
 
         Args:
-            client: Supabase client (user_client for RLS)
+            client: Supabase client (user_client for RLS, or service_client for background jobs)
             task_id: Task ID to fetch
+            user_id: User ID for explicit filtering (required for user-facing endpoints)
+                     Pass None only for background jobs using service_client
 
         Returns:
-            VideoTask or None if not found
+            VideoTask or None if not found (or not owned by user)
         """
-        response = client.table("video_tasks").select(
+        query = client.table("video_tasks").select(
             "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
             "source_image_url, engine, params, progress, user_id"
-        ).eq("id", task_id).execute()
+        ).eq("id", task_id)
+
+        # BE-AUTH-001: Explicit user_id filter (defense-in-depth)
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+
+        response = query.execute()
 
         if response.data:
             return self._row_to_task(response.data[0])
@@ -407,23 +422,25 @@ class VideoTaskService:
         # Fetch updated task
         return self.get_task_by_id(service_client, task_id)
 
-    def delete_task(self, client: Client, task_id: str) -> bool:
+    def delete_task(self, client: Client, task_id: str, user_id: str) -> bool:
         """
-        Delete a video task by ID (hard delete, RLS enforced).
+        Delete a video task by ID (hard delete, RLS + explicit user_id filter).
 
         Args:
             client: Supabase client (user_client for RLS)
             task_id: Task ID to delete
+            user_id: User ID for explicit filtering (defense-in-depth)
 
         Returns:
-            True if task was deleted, False if not found
+            True if task was deleted, False if not found (or not owned by user)
         """
-        # Check if task exists first (RLS enforced)
-        existing = self.get_task_by_id(client, task_id)
+        # Check if task exists first (explicit user_id filter)
+        existing = self.get_task_by_id(client, task_id, user_id=user_id)
         if not existing:
             return False
 
-        response = client.table("video_tasks").delete().eq("id", task_id).execute()
+        # BE-AUTH-001: Explicit user_id filter on delete (defense-in-depth)
+        response = client.table("video_tasks").delete().eq("id", task_id).eq("user_id", user_id).execute()
 
         if response.data:
             logger.info(f"[DB] Deleted task {task_id}")
