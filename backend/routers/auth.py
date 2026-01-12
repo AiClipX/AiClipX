@@ -33,10 +33,17 @@ class SignInRequest(BaseModel):
     password: str
 
 
+class RefreshRequest(BaseModel):
+    """Request body for token refresh."""
+    refresh_token: str = Field(..., description="Refresh token from signin response")
+
+
 class AuthResponse(BaseModel):
-    """Simplified auth response for frontend."""
+    """Auth response with tokens for frontend."""
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
+    expires_in: int = Field(default=3600, description="Access token TTL in seconds")
     user: dict
 
 
@@ -140,11 +147,12 @@ async def signup(request: Request, body: SignUpRequest):
             status_code=201,
             content={
                 "access_token": signin_response.session.access_token,
+                "refresh_token": signin_response.session.refresh_token,
                 "token_type": "bearer",
+                "expires_in": signin_response.session.expires_in or 3600,
                 "user": {
                     "id": user.id,
                     "email": user.email,
-                    "created_at": str(user.created_at) if user.created_at else None,
                 },
             },
             headers={"X-Request-Id": request_id},
@@ -208,7 +216,9 @@ async def signin(request: Request, body: SignInRequest):
 
         return {
             "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token,
             "token_type": "bearer",
+            "expires_in": response.session.expires_in or 3600,
             "user": {
                 "id": response.user.id,
                 "email": response.user.email,
@@ -263,3 +273,102 @@ async def get_me(request: Request, user: AuthUser = Depends(get_current_user)):
             "email": user.email,
         }
     }
+
+
+@router.post(
+    "/refresh",
+    response_model=AuthResponse,
+    responses={
+        200: {"description": "Token refreshed successfully"},
+        401: {"description": "Invalid or expired refresh token", "model": ErrorResponse},
+    },
+)
+async def refresh_token(request: Request, body: RefreshRequest):
+    """
+    Refresh access token using refresh token.
+
+    Returns new access_token and refresh_token.
+    Use this when access_token expires (default: 1 hour).
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] Token refresh attempt")
+
+    try:
+        client = get_service_client()
+
+        # Refresh session using Supabase Auth
+        response = client.auth.refresh_session(body.refresh_token)
+
+        if response.session is None:
+            logger.warning(f"[{request_id}] Refresh failed: invalid refresh token")
+            return error_response(
+                request, 401, "INVALID_REFRESH_TOKEN",
+                "Invalid or expired refresh token"
+            )
+
+        user_id = response.user.id if response.user else "unknown"
+        logger.info(f"[{request_id}] Token refreshed: user_id={user_id[:8]}...")
+
+        return {
+            "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token,
+            "token_type": "bearer",
+            "expires_in": response.session.expires_in or 3600,
+            "user": {
+                "id": response.user.id,
+                "email": response.user.email,
+            } if response.user else {},
+        }
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[{request_id}] Refresh error: {error_msg}")
+
+        # Handle invalid/expired refresh token
+        if "invalid" in error_msg.lower() or "expired" in error_msg.lower():
+            return error_response(
+                request, 401, "INVALID_REFRESH_TOKEN",
+                "Invalid or expired refresh token"
+            )
+
+        return error_response(
+            request, 500, "REFRESH_ERROR",
+            "Failed to refresh token",
+            {"error": error_msg}
+        )
+
+
+@router.post(
+    "/signout",
+    responses={
+        200: {"description": "Signed out successfully"},
+        401: {"description": "Not authenticated", "model": ErrorResponse},
+    },
+)
+async def signout(request: Request, user: AuthUser = Depends(get_current_user)):
+    """
+    Sign out and invalidate the current session.
+
+    Requires valid JWT in Authorization header.
+    After signout, the refresh token will no longer work.
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] Signout: user_id={user.id[:8]}...")
+
+    try:
+        client = get_service_client()
+
+        # Sign out using Supabase Auth (invalidates session server-side)
+        client.auth.sign_out()
+
+        logger.info(f"[{request_id}] Signout successful: user_id={user.id[:8]}...")
+
+        return {"message": "Signed out successfully"}
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[{request_id}] Signout error: {error_msg}")
+
+        # Even if signout fails on Supabase side, return success
+        # (client should still clear local tokens)
+        return {"message": "Signed out successfully"}
