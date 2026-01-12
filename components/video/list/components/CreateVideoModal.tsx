@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useRouter } from "next/router";
 import { showToast } from "../../../common/Toast";
 import { useCreateVideo } from "../hooks/useCreateVideo";
 import { Video } from "../../types/videoTypes";
@@ -10,60 +11,153 @@ type Props = {
 };
 
 export function CreateVideoModal({ open, onClose, onCreated }: Props) {
+  const router = useRouter();
   const { mutate, isPending } = useCreateVideo();
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [engine, setEngine] = useState("runway");
+  const [durationSec, setDurationSec] = useState(5);
+  const [ratio, setRatio] = useState("16:9");
+
+  const handleSubmit = () => {
+    if (!title.trim() || !prompt.trim()) {
+      showToast("Title and prompt are required.", "error", 1500);
+      return;
+    }
+
+    // Match API spec exactly
+    const payload = {
+      title: title.trim(),
+      prompt: prompt.trim(),
+      engine,
+      params: {
+        durationSec,
+        ratio,
+      },
+    };
+
+    console.log("=== SUBMITTING PAYLOAD ===");
+    console.log("Payload:", payload);
+    console.log("JSON:", JSON.stringify(payload, null, 2));
+
+    mutate(payload, {
+      onSuccess: (newVideo: Video) => {
+        showToast(`Video task created: ${newVideo.id}`, "success", 2000);
+        onCreated?.(newVideo);
+
+        // Reset form
+        setTitle("");
+        setPrompt("");
+        setEngine("runway");
+        setDurationSec(5);
+        setRatio("16:9");
+
+        onClose();
+        
+        // Navigate to detail page immediately
+        router.push(`/dashboard/videos/${newVideo.id}`);
+      },
+      onError: (error: any) => {
+        console.error("Create video failed:", error);
+        console.error("Error response:", error?.response?.data);
+        
+        // Parse error message from API spec format
+        let errorMsg = "Create video failed. Please try again.";
+        if (error?.response?.data) {
+          const errorData = error.response.data;
+          if (errorData.message) {
+            errorMsg = errorData.message;
+          }
+          if (errorData.code) {
+            errorMsg = `${errorData.code}: ${errorMsg}`;
+          }
+        }
+        
+        showToast(errorMsg, "error", 4000);
+      },
+    });
+  };
 
   if (!open) return null;
 
-  const handleSubmit = () => {
-    // toast ngay khi submit
-    showToast("Video is being created, please wait…", "success", 1500);
-
-    mutate(
-      { title: title || undefined, prompt: prompt || undefined },
-      {
-        onSuccess: (newVideo: Video) => {
-          onCreated?.(newVideo);
-
-          // reset form
-          setTitle("");
-          setPrompt("");
-
-          onClose();
-        },
-        onError: () => {
-          showToast("Create video failed", "error", 1500);
-        },
-      }
-    );
-  };
-
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-neutral-900 rounded-lg p-4 w-full max-w-md text-white">
-        <h2 className="text-lg font-semibold mb-3">Create new video</h2>
+      <div className="bg-neutral-900 rounded-lg p-6 w-full max-w-md text-white">
+        <h2 className="text-xl font-semibold mb-4">Create Video Task</h2>
 
-        <input
-          className="px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm w-full mb-2"
-          placeholder="Video title (optional)"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          disabled={isPending}
-        />
+        <div className="space-y-4">
+          {/* Title */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Title *</label>
+            <input
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm focus:border-blue-500 focus:outline-none"
+              placeholder="Enter video title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              disabled={isPending}
+            />
+          </div>
 
-        <textarea
-          className="px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm w-full"
-          rows={4}
-          placeholder="Prompt (optional)"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          disabled={isPending}
-        />
+          {/* Prompt */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Prompt *</label>
+            <textarea
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm focus:border-blue-500 focus:outline-none"
+              rows={3}
+              placeholder="Describe the video you want to create"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              disabled={isPending}
+            />
+          </div>
 
-        <div className="flex justify-end gap-2 mt-4">
+          {/* Engine */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Engine</label>
+            <select
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm focus:border-blue-500 focus:outline-none"
+              value={engine}
+              onChange={(e) => setEngine(e.target.value)}
+              disabled={isPending}
+            >
+              <option value="runway">Runway</option>
+              <option value="mock">Mock (for testing)</option>
+            </select>
+          </div>
+
+          {/* Duration */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Duration (seconds)</label>
+            <input
+              type="number"
+              min="1"
+              max="30"
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm focus:border-blue-500 focus:outline-none"
+              value={durationSec}
+              onChange={(e) => setDurationSec(Number(e.target.value))}
+              disabled={isPending}
+            />
+          </div>
+
+          {/* Ratio */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Aspect Ratio</label>
+            <select
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm focus:border-blue-500 focus:outline-none"
+              value={ratio}
+              onChange={(e) => setRatio(e.target.value)}
+              disabled={isPending}
+            >
+              <option value="16:9">16:9 (Landscape)</option>
+              <option value="9:16">9:16 (Portrait)</option>
+              <option value="1:1">1:1 (Square)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
           <button
-            className="px-3 py-1 bg-neutral-700 rounded"
+            className="px-4 py-2 bg-neutral-700 rounded hover:bg-neutral-600 transition-colors"
             onClick={onClose}
             disabled={isPending}
           >
@@ -71,11 +165,11 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           </button>
 
           <button
-            className="px-3 py-1 bg-blue-600 rounded disabled:opacity-50"
+            className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={handleSubmit}
-            disabled={isPending}
+            disabled={isPending || !title.trim() || !prompt.trim()}
           >
-            {isPending ? "Creating..." : "Create"}
+            {isPending ? "Creating..." : "Create Task"}
           </button>
         </div>
       </div>

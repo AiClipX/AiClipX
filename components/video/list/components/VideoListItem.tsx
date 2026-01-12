@@ -31,24 +31,19 @@ export function VideoListItem({ video }: Props) {
     type: "success",
     title: "",
   });
-  const isDeleteDisabled =
-    video.status === "processing" || video.status === "queued";
+
+  const isDeleteDisabled = video.status === "processing" || video.status === "queued";
 
   const handleClick = () => {
-    if (video.status === "failed") return;
+    if (video.status === "failed") {
+      // Still allow viewing failed videos to see error details
+    }
 
     if (video.status === "processing" || video.status === "queued") {
-      alert(
-        `Video is still ${video.status}. It will be available when completed.`
-      );
-      return;
+      // Allow viewing to see progress
     }
 
-    if (video.status === "completed" && !video.url) {
-      alert(`Cannot play video "${video.title}" - URL not found`);
-      return;
-    }
-
+    // Save current list state
     sessionStorage.setItem(
       "videoListState",
       JSON.stringify({ status, sort, search })
@@ -61,140 +56,170 @@ export function VideoListItem({ video }: Props) {
     try {
       setDeleting(true);
       await deleteVideoTask(video.id);
-      showToast("Video is being created, please wait…", "success", 1000);
+      showToast("Video deleted successfully", "success", 1500);
 
       setTimeout(() => {
-        window.location.reload(); // MVP
-      }, 1500);
-    } catch {
-      showToast("Create video failed", "error", 1500);
+        window.location.reload(); // MVP - refresh to update list
+      }, 1000);
+    } catch (error: any) {
+      console.error("Delete failed:", error);
+      const errorMsg = error?.response?.data?.message || "Delete failed";
+      showToast(errorMsg, "error", 2000);
     } finally {
       setDeleting(false);
       setOpenDelete(false);
     }
   };
-  // const handleDownload = (e: React.MouseEvent) => {
-  //   e.stopPropagation(); 
-  
-  //   if (!video.url) {
-  //     showToast("Video URL not available", "error");
-  //     return;
-  //   }
-  
-  //   window.open(video.url, "_blank");
-  // };
-  const handleDownload = async (
-    e: React.MouseEvent,
-    video: Video
-  ) => {
+
+  const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
-  
+
+    if (!video.videoUrl) {
+      showToast("Video URL not available", "error");
+      return;
+    }
+
     try {
       showToast("Preparing download…", "success", 2000);
-  
-      const res = await fetch(video.url);
+
+      const res = await fetch(video.videoUrl);
       if (!res.ok) throw new Error("Download failed");
-  
+
       const blob = await res.blob();
-  
+
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = `${video.title || "video"}-${video.id}.mp4`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-  
+
       URL.revokeObjectURL(a.href);
-    } catch {
+      showToast("Download started", "success");
+    } catch (error) {
+      console.error("Download failed:", error);
       showToast("Download failed", "error");
     }
   };
-  
+
+  // Get thumbnail - use sourceImageUrl or fallback
+  const thumbnailUrl = video.sourceImageUrl || video.thumbnail || `https://picsum.photos/400/225?random=${video.id}`;
 
   return (
     <>
       <div
-        className={`bg-neutral-900 rounded-lg overflow-hidden group cursor-pointer transition hover:scale-[1.03] ${
-          video.status === "failed" ? "opacity-80 cursor-not-allowed" : ""
+        className={`bg-neutral-900 rounded-lg overflow-hidden group cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-lg ${
+          video.status === "failed" ? "opacity-90" : ""
         }`}
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         <div className="relative aspect-video bg-black">
-          {video.status === "failed" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 text-red-500 text-sm p-2 text-center">
-              <span>{video.errorMessage || "Video generation failed"}</span>
+          {/* Status overlay for processing/queued */}
+          {(video.status === "processing" || video.status === "queued") && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 text-white z-10">
+              <div className={`font-semibold ${statusConfig.className}`}>
+                {statusConfig.label}
+              </div>
+              {video.status === "processing" && (
+                <div className="text-sm mt-1">{video.progress}%</div>
+              )}
             </div>
           )}
 
-          {video.status !== "failed" && (
-            <>
-              {!hovered && (
-                <img
-                  src={video.thumbnail}
-                  alt={video.title}
-                  className="w-full h-full object-cover"
-                />
-              )}
+          {/* Error overlay for failed */}
+          {video.status === "failed" && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-red-400 text-sm p-4 text-center z-10">
+              <div className="font-semibold mb-2">Failed</div>
+              <div className="text-xs text-red-300 line-clamp-3">
+                {video.errorMessage || "Video generation failed"}
+              </div>
+            </div>
+          )}
 
-              {hovered && video.status === "completed" && video.url && (
-                <video
-                  src={video.url}
-                  muted
-                  autoPlay
-                  loop
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              )}
+          {/* Thumbnail/Video preview */}
+          {!hovered && (
+            <img
+              src={thumbnailUrl}
+              alt={video.title}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // Fallback to placeholder if image fails to load
+                (e.target as HTMLImageElement).src = `https://picsum.photos/400/225?random=${video.id}`;
+              }}
+            />
+          )}
 
-              {(video.status === "processing" || video.status === "queued") && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-yellow-400 font-semibold">
-                  {statusConfig.label}
-                </div>
-              )}
-            </>
+          {/* Video preview on hover for completed videos */}
+          {hovered && video.status === "completed" && video.videoUrl && (
+            <video
+              src={video.videoUrl}
+              muted
+              autoPlay
+              loop
+              playsInline
+              className="w-full h-full object-cover"
+              onError={() => {
+                // Fallback to thumbnail if video fails
+                setHovered(false);
+              }}
+            />
+          )}
+
+          {/* Show thumbnail on hover for non-completed videos */}
+          {hovered && (video.status !== "completed" || !video.videoUrl) && (
+            <img
+              src={thumbnailUrl}
+              alt={video.title}
+              className="w-full h-full object-cover"
+            />
           )}
         </div>
 
-        <div className="p-2">
-          <div className="font-medium text-sm truncate">{video.title}</div>
+        <div className="p-3">
+          <div className="font-medium text-sm text-white truncate mb-1">
+            {video.title}
+          </div>
 
-          <div className="flex justify-between items-center mt-1 text-xs">
+          <div className="flex justify-between items-center text-xs mb-2">
             <span className="text-neutral-400">
               {new Date(video.createdAt).toLocaleDateString()}
             </span>
-
             <span className={`font-semibold ${statusConfig?.className}`}>
               {statusConfig?.label}
             </span>
           </div>
 
-          <div className="flex justify-between items-center mt-2">
-            {/* Download */}
-            {video.status === "completed" && video.url && (
-  <button
-    onClick={(e) => handleDownload(e, video)}
-    className="text-xs underline text-blue-400 hover:text-blue-300"
-  >
-    Download
-  </button>
-)}
+          <div className="flex justify-between items-center">
+            {/* Download button for completed videos */}
+            {video.status === "completed" && video.videoUrl && (
+              <button
+                onClick={handleDownload}
+                className="text-xs underline text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                Download
+              </button>
+            )}
 
-            {/* Delete */}
+            {/* Engine info */}
+            <span className="text-xs text-neutral-500 capitalize">
+              {video.engine}
+            </span>
+
+            {/* Delete button */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 if (isDeleteDisabled) {
-                  alert("Cannot delete while video is processing");
+                  showToast("Cannot delete while video is processing", "warning");
                   return;
                 }
                 setOpenDelete(true);
               }}
-              className={`text-xs underline ${
+              className={`text-xs underline transition-colors ${
                 isDeleteDisabled
-                  ? "text-neutral-500 cursor-not-allowed"
+                  ? "text-neutral-600 cursor-not-allowed"
                   : "text-red-400 hover:text-red-300"
               }`}
             >
@@ -210,6 +235,7 @@ export function VideoListItem({ video }: Props) {
         onCancel={() => setOpenDelete(false)}
         onConfirm={handleDelete}
       />
+      
       <NotificationModal
         open={notify.open}
         type={notify.type}

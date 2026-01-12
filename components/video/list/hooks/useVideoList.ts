@@ -7,7 +7,7 @@ import { Video, VideoStatus } from "../../types/videoTypes";
    CONFIG
 ===================== */
 const LIMIT = 12;
-const SEARCH_DEBOUNCE_MS = 1000;
+const SEARCH_DEBOUNCE_MS = 800;
 const MAX_ITEMS = 300;
 const MAX_REQUESTS = 10;
 const POLL_INTERVAL_MS = 5000;
@@ -27,7 +27,6 @@ export function useVideoList() {
   const pageCursors = useRef<Map<number, string | null>>(new Map());
 
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const searchCursorRef = useRef<string | null>(null);
   const [isCapped, setIsCapped] = useState(false);
 
   /* =====================
@@ -73,7 +72,7 @@ export function useVideoList() {
   const fetchPage = async (
     pageIndex: number,
     force = false,
-    silent = false // 👈 thêm flag
+    silent = false
   ) => {
     if (!silent) {
       setLoading(true);
@@ -94,37 +93,23 @@ export function useVideoList() {
       let cursor =
         pageIndex === 1 ? null : pageCursors.current.get(pageIndex - 1) ?? null;
 
-      let collected: Video[] = [];
-      let hasMore = true;
-      let safety = 0;
+      const res = await fetchVideosCursor({
+        limit: LIMIT,
+        cursor: cursor ?? undefined,
+        sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
+        q: debouncedSearch || undefined,
+        status: status === "All" ? undefined : status,
+      });
 
-      while (collected.length < LIMIT && hasMore && safety < 10) {
-        const res = await fetchVideosCursor({
-          limit: LIMIT,
-          cursor: cursor ?? undefined,
-          sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
-        });
-
-        const filtered =
-          status === "All"
-            ? res.data
-            : res.data.filter((v) => v.status === status);
-
-        collected.push(...filtered);
-        cursor = res.nextCursor ?? null;
-        hasMore = !!cursor;
-        safety++;
-      }
-
-      const pageVideos = collected.slice(0, LIMIT);
+      const pageVideos = res.data.slice(0, LIMIT);
       pagesCache.current.set(pageIndex, pageVideos);
-      pageCursors.current.set(pageIndex, cursor);
+      pageCursors.current.set(pageIndex, res.nextCursor ?? null);
 
       setVideos(pageVideos);
       setCurrentPage(pageIndex);
-      setHasNext(hasMore);
+      setHasNext(!!res.nextCursor);
     } catch (err) {
-      console.error(err);
+      console.error("Fetch page error:", err);
       setTimeoutError(true);
     } finally {
       if (!silent) {
@@ -132,134 +117,77 @@ export function useVideoList() {
       }
     }
   };
+
   const isPollingRef = useRef(false);
 
   /* =====================
      POLLING (Queued / Processing)
-     👉 KHÔNG loading
   ===================== */
   useEffect(() => {
     if (debouncedSearch) return;
-  
+
     const hasCreating = videos.some((v) =>
       CREATING_STATUSES.includes(v.status)
     );
-  
+
     // Start polling
     if (hasCreating && !isPollingRef.current) {
       isPollingRef.current = true;
-  
+
       const interval = setInterval(() => {
         pagesCache.current.delete(currentPage);
         fetchPage(currentPage, true, true);
       }, POLL_INTERVAL_MS);
-  
+
       return () => {
         clearInterval(interval);
         isPollingRef.current = false;
       };
     }
-  
+
     // Stop polling
     if (!hasCreating && isPollingRef.current) {
       isPollingRef.current = false;
     }
   }, [videos, currentPage, debouncedSearch]);
-  
 
   /* =====================
      NAVIGATION
   ===================== */
   const goNext = () => {
-    if (debouncedSearch || !hasNext) return;
+    if (!hasNext) return;
     fetchPage(currentPage + 1);
   };
 
   const goPrev = () => {
-    if (debouncedSearch || currentPage <= 1) return;
+    if (currentPage <= 1) return;
     fetchPage(currentPage - 1);
   };
 
   /* =====================
-     RESET ON STATUS / SORT
+     RESET ON STATUS / SORT / SEARCH
   ===================== */
   useEffect(() => {
-    if (debouncedSearch) return;
     pagesCache.current.clear();
     pageCursors.current.clear();
+    setCurrentPage(1);
     fetchPage(1, true);
   }, [status, sort, debouncedSearch]);
-
-  /* =====================
-     SEARCH MODE
-  ===================== */
-  useEffect(() => {
-    if (!debouncedSearch) return;
-
-    let cancelled = false;
-
-    setCurrentPage(1);
-    pagesCache.current.clear();
-    pageCursors.current.clear();
-
-    const runSearch = async () => {
-      setLoading(true);
-      setIsCapped(false);
-
-      let collected: Video[] = [];
-      let cursor: string | null = null;
-      let requests = 0;
-
-      while (
-        !cancelled &&
-        collected.length < MAX_ITEMS &&
-        requests < MAX_REQUESTS
-      ) {
-        const res = await fetchVideosCursor({
-          limit: LIMIT,
-          cursor: cursor ?? undefined,
-          sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
-        });
-
-        collected.push(...res.data);
-        cursor = res.nextCursor ?? null;
-        requests++;
-        if (!cursor) break;
-      }
-
-      if (cancelled) return;
-      if (cursor) setIsCapped(true);
-
-      const keyword = debouncedSearch.toLowerCase();
-      setVideos(
-        collected.filter(
-          (v) =>
-            (status === "All" || v.status === status) &&
-            (v.title?.toLowerCase().includes(keyword) ||
-              v.id.toLowerCase().includes(keyword))
-        )
-      );
-
-      searchCursorRef.current = cursor;
-      setLoading(false);
-    };
-
-    runSearch();
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedSearch, status, sort]);
 
   return {
     videos,
     loading,
     timeoutError,
     currentPage,
-    canNext: !debouncedSearch && hasNext,
-    canPrev: !debouncedSearch && currentPage > 1,
+    canNext: hasNext,
+    canPrev: currentPage > 1,
     goNext,
     goPrev,
-    refetch: () => fetchPage(1, true),
+    refetch: () => {
+      pagesCache.current.clear();
+      pageCursors.current.clear();
+      fetchPage(1, true);
+    },
     isCapped,
     prependVideo,
   };

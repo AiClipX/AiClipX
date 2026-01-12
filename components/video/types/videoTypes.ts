@@ -8,15 +8,23 @@ export type VideoStatus =
 export interface Video {
   id: string;
   title: string;
-  status: VideoStatus; // dùng chữ thường
+  status: VideoStatus;
   createdAt: string;
-  thumbnail: string;
-  url: string | null;
+  updatedAt: string;
+  videoUrl: string | null;
+  errorMessage: string | null;
+  progress: number;
+  sourceImageUrl: string | null;
+  engine: string;
+  params: any;
+  debug: any;
+  prompt: string;
+  // Computed fields for UI
+  thumbnail?: string;
+  url?: string | null;
   duration?: string;
   ratio?: string;
   language?: string;
-  prompt: string;
-  errorMessage?: string | null;
 }
 
 // Config hiển thị
@@ -29,16 +37,16 @@ export const VIDEO_STATUS_CONFIG: Record<
     className: "text-gray-600",
   },
   queued: {
-    label: "Waiting",
-    className: "text-gray-400",
+    label: "Queued",
+    className: "text-yellow-500",
   },
   processing: {
     label: "Processing",
-    className: "text-yellow-400",
+    className: "text-blue-500",
   },
   completed: {
     label: "Completed",
-    className: "text-green-400",
+    className: "text-green-500",
   },
   failed: {
     label: "Failed",

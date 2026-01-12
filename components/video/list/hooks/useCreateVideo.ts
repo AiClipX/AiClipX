@@ -1,37 +1,41 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
+import { createVideoTask } from "../../services/videoService";
 import { Video } from "../../types/videoTypes";
-
-const API_URL = `${process.env.NEXT_PUBLIC_API_VIDEO}/api/video-tasks`;
 
 export function useCreateVideo() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (payload: { title?: string; prompt?: string }) => {
-      const res = await axios.post(API_URL, payload);
-      return res.data; // đây phải là object video mới
+    mutationFn: async (payload: { 
+      title: string; 
+      prompt: string; 
+      engine: string; 
+      params?: any 
+    }) => {
+      console.log("=== CREATE VIDEO REQUEST ===");
+      console.log("Payload:", payload);
+      
+      const video = await createVideoTask(payload);
+      console.log("Response:", video);
+      return video;
     },
 
     onSuccess: (newVideo: Video) => {
-      // 1. Set default status = "Queued" nếu chưa có
-      const videoToAdd = { ...newVideo, status: newVideo.status || "Queued" };
-
-      // 2. Update query cache ngay lập tức
+      // Update query cache immediately
       queryClient.setQueryData(["videos", "list"], (oldData: any) => {
-        if (!oldData) return [videoToAdd];
-        // Tránh duplicate
+        if (!oldData) return [newVideo];
+        // Avoid duplicates
         const map = new Map(oldData.map((v: Video) => [v.id, v]));
-        map.set(videoToAdd.id, videoToAdd);
+        map.set(newVideo.id, newVideo);
         return [
-          videoToAdd,
+          newVideo,
           ...Array.from(map.values()).filter(
-            (v: Video) => v.id !== videoToAdd.id
+            (v: Video) => v.id !== newVideo.id
           ),
         ];
       });
 
-      // 3. Tùy chọn: vẫn invalidate để fetch server cập nhật mới nhất
+      // Invalidate to fetch latest from server
       queryClient.invalidateQueries({ queryKey: ["videos", "list"] });
     },
   });
