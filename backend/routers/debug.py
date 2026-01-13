@@ -140,7 +140,7 @@ async def debug_cors(request: Request):
     # CORS settings (must match main.py CORSMiddleware config)
     allow_regex = r"https://.*\.vercel\.app"
     allowed_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-    allowed_headers = ["Authorization", "Content-Type", "X-Request-Id", "Accept"]
+    allowed_headers = ["Authorization", "Content-Type", "X-Request-Id", "Accept", "Idempotency-Key"]
     expose_headers = ["X-Request-Id"]
     credentials = True
 
