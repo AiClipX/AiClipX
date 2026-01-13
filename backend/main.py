@@ -26,7 +26,7 @@ from services.ratelimit import limiter
 
 from database import close_db, init_db, check_db_health
 from generate_video import generate_video
-from routers import video_tasks, tts, auth
+from routers import video_tasks, tts, auth, debug
 from services.supabase_client import init_supabase, is_supabase_configured
 from services.runway import close_http_client
 
@@ -121,6 +121,7 @@ app.add_middleware(
 app.include_router(video_tasks.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")  # BE-AUTH-002
+app.include_router(debug.router, prefix="/api")  # BE-INTEG-001
 
 
 # Standard error response model
