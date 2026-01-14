@@ -265,25 +265,36 @@ async def create_video_task(
     idempotency_key: Optional[str] = Header(
         default=None,
         alias="Idempotency-Key",
-        description="Optional key to prevent duplicate task creation (valid for 60 minutes). "
+        description="**Required.** Key to prevent duplicate task creation (valid for 60 minutes, per-user scoped). "
         "If the same key is used with a different payload, returns 409 Conflict.",
     ),
 ) -> VideoTask:
     """
-    Create a new video task (BE-STG8 + BE-ENGINE-001).
+    Create a new video task (BE-STG8 + BE-ENGINE-001 + BE-STG10-002).
 
     - **title**: Task title (required, max 500 chars)
     - **prompt**: Video generation prompt (required, max 2000 chars)
     - **sourceImageUrl**: Source image URL (required for engine=runway)
     - **engine**: Video engine - "runway" or "mock" (default: mock)
     - **params**: Optional generation parameters (durationSec, ratio)
-    - **Idempotency-Key** header: Optional, prevents duplicate creation for 60 minutes.
+    - **Idempotency-Key** header: **Required**, prevents duplicate creation for 60 minutes (per-user scoped).
 
     Returns the created task with queued status.
     For engine=mock: auto-transitions queued -> processing (5s) -> completed (20s)
     For engine=runway: async processing via Runway API -> uploads to Supabase Storage
     """
     request_id = getattr(request.state, "request_id", "unknown")
+
+    # BE-STG10-002: Idempotency-Key is REQUIRED
+    if not idempotency_key:
+        logger.warning(f"[{request_id}] Missing required Idempotency-Key header")
+        return error_response(
+            status_code=400,
+            code="IDEMPOTENCY_KEY_REQUIRED",
+            message="Idempotency-Key header is required for POST /api/video-tasks",
+            request_id=request_id,
+            details={"hint": "Add Idempotency-Key header with a unique value (e.g., UUID)"},
+        )
 
     # Log payload summary (truncate long prompts)
     title_log = (request_body.title[:50] + "...") if len(request_body.title) > 50 else request_body.title
@@ -307,36 +318,35 @@ async def create_video_task(
     # BE-AUTH-001: Use user_client for RLS enforcement
     user_client = get_user_client(user.jwt_token)
 
-    # Check idempotency if key provided
-    if idempotency_key:
-        payload = {
-            "title": request_body.title,
-            "prompt": request_body.prompt,
-            "engine": request_body.engine.value,
-        }
-        idemp_result = check_idempotency(idempotency_key, payload)
+    # Check idempotency (BE-STG10-002: per-user scoped)
+    payload = {
+        "title": request_body.title,
+        "prompt": request_body.prompt,
+        "engine": request_body.engine.value,
+    }
+    idemp_result = check_idempotency(idempotency_key, payload, user.id)
 
-        # Payload mismatch → 409 Conflict
-        if idemp_result.mismatch:
-            logger.warning(
-                f"[{request_id}] Idempotency CONFLICT: key {idempotency_key[:8]}... "
-                "used with different payload - returning 409"
-            )
-            return error_response(
-                status_code=409,
-                code="IDEMPOTENCY_KEY_CONFLICT",
-                message="Idempotency-Key already used with different payload",
-                request_id=request_id,
-                details={"idempotencyKey": idempotency_key[:16] + "..."},
-            )
+    # Payload mismatch → 409 Conflict
+    if idemp_result.mismatch:
+        logger.warning(
+            f"[{request_id}] Idempotency CONFLICT: key {idempotency_key[:8]}... "
+            "used with different payload - returning 409"
+        )
+        return error_response(
+            status_code=409,
+            code="IDEMPOTENCY_KEY_CONFLICT",
+            message="Idempotency-Key already used with different payload",
+            request_id=request_id,
+            details={"idempotencyKey": idempotency_key[:16] + "..."},
+        )
 
-        # Cache hit with matching payload → return existing task
-        if idemp_result.hit and idemp_result.task_id:
-            logger.info(f"[{request_id}] Idempotency hit: returning existing task {idemp_result.task_id}")
-            task = video_task_service.get_task_by_id(user_client, idemp_result.task_id, user_id=user.id)
-            if task:
-                task.debug = DebugInfo(requestId=request_id)
-                return task
+    # Cache hit with matching payload → return existing task
+    if idemp_result.hit and idemp_result.task_id:
+        logger.info(f"[{request_id}] Idempotency hit: returning existing task {idemp_result.task_id}")
+        task = video_task_service.get_task_by_id(user_client, idemp_result.task_id, user_id=user.id)
+        if task:
+            task.debug = DebugInfo(requestId=request_id)
+            return task
 
     # Prepare params dict
     params_dict = None
@@ -355,14 +365,8 @@ async def create_video_task(
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value} for user={user.id[:8]}...")
 
-    # Store idempotency key if provided
-    if idempotency_key:
-        payload = {
-            "title": request_body.title,
-            "prompt": request_body.prompt,
-            "engine": request_body.engine.value,
-        }
-        store_idempotency(idempotency_key, payload, task.id)
+    # Store idempotency key (BE-STG10-002: per-user scoped)
+    store_idempotency(idempotency_key, payload, task.id, user.id)
 
     # Schedule background processing based on engine
     if request_body.engine == VideoEngine.mock:
