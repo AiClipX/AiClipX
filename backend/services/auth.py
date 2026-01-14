@@ -125,6 +125,11 @@ def verify_jwt(token: str) -> dict:
         raise AuthError("Invalid token audience")
     except jwt.InvalidTokenError as e:
         raise AuthError(f"Invalid token: {e}")
+    except Exception as e:
+        # Catch any unexpected JWT parsing errors (malformed tokens, etc.)
+        # This prevents 500 errors for completely invalid token formats like "mock-token"
+        logger.warning(f"Unexpected JWT error: {type(e).__name__}: {e}")
+        raise AuthError("Invalid token format")
 
 
 async def get_current_user(
