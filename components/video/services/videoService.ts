@@ -1,4 +1,3 @@
-import axios from "../../../lib/apiClient";
 import { Video, VideoStatus } from "../types/videoTypes";
 
 /* =====================
@@ -81,25 +80,61 @@ export async function fetchVideosCursor(params: {
   q?: string;
   status?: string;
 }): Promise<{ data: Video[]; nextCursor?: string }> {
-  const res = await axios.get(`/api/video-tasks`, {
-    params: buildCursorParams(params),
+  const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
+  const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
+  
+  const queryParams = new URLSearchParams(buildCursorParams(params) as any);
+  const response = await fetch(`${apiBase}/api/video-tasks?${queryParams}`, {
+    headers: {
+      "Authorization": token ? `Bearer ${token}` : "",
+    },
   });
 
+  if (!response.ok) {
+    if (response.status === 401) {
+      localStorage.removeItem("aiclipx_token");
+      window.location.href = "/login";
+    }
+    throw new Error("Failed to fetch videos");
+  }
+
+  const data = await response.json();
   return {
-    data: res.data.data.map(parseVideo),
-    nextCursor: res.data.nextCursor,
+    data: data.data.map(parseVideo),
+    nextCursor: data.nextCursor,
   };
 }
 
 export async function getVideoById(id: string): Promise<Video | null> {
   try {
-    const res = await axios.get(`/api/video-tasks/${id}`);
-    return parseVideo(res.data);
-  } catch (err: any) {
-    if (err?.response?.status === 404) {
+    const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
+    const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
+    
+    const response = await fetch(`${apiBase}/api/video-tasks/${id}`, {
+      headers: {
+        "Authorization": token ? `Bearer ${token}` : "",
+      },
+    });
+    
+    if (response.status === 404) {
       return null;
     }
-    throw err;
+    
+    if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem("aiclipx_token");
+        window.location.href = "/login";
+      }
+      throw new Error("Failed to fetch video");
+    }
+    
+    const data = await response.json();
+    return parseVideo(data);
+  } catch (err: any) {
+    if (err?.message === "Failed to fetch video") {
+      throw err;
+    }
+    return null;
   }
 }
 
@@ -109,24 +144,59 @@ export async function createVideoTask(payload: {
   engine: string;
   params?: any;
 }): Promise<Video> {
-  console.log("=== CREATE VIDEO API CALL ===");
-  console.log("Request payload:", payload);
-
-  // Generate request ID and idempotency key
   const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const idempotencyKey = `create_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  const res = await axios.post(`/api/video-tasks`, payload, {
-    headers: {
-      "X-Request-Id": requestId,
-      "Idempotency-Key": idempotencyKey,
-    },
-  });
-  
-  console.log("API Response:", res.data);
-  return parseVideo(res.data);
+  try {
+    const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
+    const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
+    
+    const response = await fetch(`${apiBase}/api/video-tasks`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : "",
+        "X-Request-Id": requestId,
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      
+      if (response.status === 401) {
+        localStorage.removeItem("aiclipx_token");
+        window.location.href = "/login";
+      }
+      
+      throw new Error(errorData.message || "Failed to create video");
+    }
+    
+    const data = await response.json();
+    return parseVideo(data);
+  } catch (error: any) {
+    console.error("Create video error:", error);
+    throw error;
+  }
 }
 
 export async function deleteVideoTask(id: string) {
-  return axios.delete(`/api/video-tasks/${id}`);
+  const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
+  const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
+  
+  const response = await fetch(`${apiBase}/api/video-tasks/${id}`, {
+    method: "DELETE",
+    headers: {
+      "Authorization": token ? `Bearer ${token}` : "",
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      localStorage.removeItem("aiclipx_token");
+      window.location.href = "/login";
+    }
+    throw new Error("Failed to delete video");
+  }
 }

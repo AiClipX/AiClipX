@@ -15,7 +15,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   const { mutate, isPending } = useCreateVideo();
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [engine, setEngine] = useState("runway");
+  const [engine, setEngine] = useState("mock"); // Changed to "mock" - runway requires sourceImageUrl
   const [durationSec, setDurationSec] = useState(5);
   const [ratio, setRatio] = useState("16:9");
 
@@ -25,13 +25,13 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
       return;
     }
 
-    // Match API spec exactly
-    const payload = {
+    // Match backend format exactly
+    const payload: any = {
       title: title.trim(),
       prompt: prompt.trim(),
       engine,
       params: {
-        durationSec,
+        durationSec: Number(durationSec),
         ratio,
       },
     };
@@ -48,7 +48,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         // Reset form
         setTitle("");
         setPrompt("");
-        setEngine("runway");
+        setEngine("mock"); // Changed to "mock"
         setDurationSec(5);
         setRatio("16:9");
 
@@ -58,8 +58,18 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         router.push(`/dashboard/videos/${newVideo.id}`);
       },
       onError: (error: any) => {
-        console.error("Create video failed:", error);
-        console.error("Error response:", error?.response?.data);
+        console.error("=== CREATE VIDEO ERROR ===");
+        console.error("Full error:", error);
+        console.error("Response status:", error?.response?.status);
+        console.error("Response headers:", error?.response?.headers);
+        console.error("Response data:", error?.response?.data);
+        
+        // Log requestId if available
+        const requestId = error?.response?.data?.requestId || 
+                         error?.response?.headers?.["x-request-id"];
+        if (requestId) {
+          console.error("X-Request-Id:", requestId);
+        }
         
         // Parse error message from API spec format
         let errorMsg = "Create video failed. Please try again.";
@@ -70,6 +80,9 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           }
           if (errorData.code) {
             errorMsg = `${errorData.code}: ${errorMsg}`;
+          }
+          if (errorData.details) {
+            console.error("Error details:", errorData.details);
           }
         }
         
