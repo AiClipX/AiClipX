@@ -32,16 +32,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setToken(stored);
         // attempt to fetch user with timeout
         const timeoutId = setTimeout(() => {
-          // If fetchMe takes too long, just set loading to false and continue
-          console.warn("fetchMe timeout - continuing anyway");
+          // If fetchMe takes too long, just set loading to false and continue with token
+          console.warn("fetchMe timeout - continuing with stored token");
           setLoading(false);
         }, 3000); // 3 second timeout
         
         fetchMe(stored)
-          .catch(() => {
-            setToken(null);
-            setUser(null);
-            window.localStorage.removeItem("aiclipx_token");
+          .catch((err) => {
+            // Only clear token on 401, otherwise keep it
+            const is401 = err?.response?.status === 401 || err?.message?.includes("401");
+            if (is401) {
+              console.log("401 error - clearing token");
+              setToken(null);
+              setUser(null);
+              window.localStorage.removeItem("aiclipx_token");
+            } else {
+              // Network error or other issue - keep token, user can still use app
+              console.warn("fetchMe failed but keeping token:", err?.message);
+            }
           })
           .finally(() => {
             clearTimeout(timeoutId);
@@ -107,14 +115,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ token, user, login, logout, refreshMe }}>
-      {/* {loading ? (
+      {loading ? (
         <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
           <div className="text-white">Loading...</div>
         </div>
       ) : (
         children
-      )} */}
-      {children}
+      )}
     </AuthContext.Provider>
   );
 };
