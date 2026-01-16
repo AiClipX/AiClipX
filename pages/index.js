@@ -24,12 +24,12 @@ export default function Home() {
             <Link href="/upload" className="btn-primary">Upload Demo</Link>
           </div>
         </div>
-        <div className="mt-4 space-y-4">
+        {/* <div className="mt-4 space-y-4">
           <AuthDebug />
           <DirectAPITest />
           <ExactAPITest />
           <TestCreateVariations />
-        </div>
+        </div> */}
       </div>
     </main>
   )
