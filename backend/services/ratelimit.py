@@ -19,3 +19,4 @@ limiter = Limiter(key_func=get_remote_address)
 RATE_LIMIT_VIDEO_CREATE = "10/minute"  # 10 video tasks per minute per IP
 RATE_LIMIT_TTS = "30/minute"           # 30 TTS requests per minute per IP
 RATE_LIMIT_DEFAULT = "100/minute"       # Default for other endpoints
+RATE_LIMIT_AUTH_SIGNIN = "10/minute"   # BE-STG11-005: 10 signin attempts per minute per IP

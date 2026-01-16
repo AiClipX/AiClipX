@@ -16,6 +16,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from services.supabase_client import get_service_client
 from services.auth import get_current_user, AuthUser
+from services.ratelimit import limiter, RATE_LIMIT_AUTH_SIGNIN
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +186,10 @@ async def signup(request: Request, body: SignUpRequest):
         200: {"description": "Login successful"},
         401: {"description": "Invalid credentials", "model": ErrorResponse},
         422: {"description": "Validation error", "model": ErrorResponse},
+        429: {"description": "Rate limit exceeded", "model": ErrorResponse},
     },
 )
+@limiter.limit(RATE_LIMIT_AUTH_SIGNIN)
 async def signin(request: Request, body: SignInRequest):
     """
     Sign in with email and password.
