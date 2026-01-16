@@ -34,22 +34,22 @@ export const VIDEO_STATUS_CONFIG: Record<
 > = {
   draft: {
     label: "Draft",
-    className: "text-gray-600",
+    className: "text-gray-400",
   },
   queued: {
-    label: "Queued",
-    className: "text-yellow-500",
+    label: "Waiting", // Queued hiển thị là "Waiting"
+    className: "text-gray-400", // màu xám
   },
   processing: {
     label: "Processing",
-    className: "text-blue-500",
+    className: "text-yellow-400", // màu vàng
   },
   completed: {
     label: "Completed",
-    className: "text-green-500",
+    className: "text-green-400", // màu xanh
   },
   failed: {
     label: "Failed",
-    className: "text-red-500",
+    className: "text-red-400",
   },
 };

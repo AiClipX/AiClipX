@@ -21,6 +21,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -29,13 +30,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const stored = window.localStorage.getItem("aiclipx_token");
       if (stored) {
         setToken(stored);
-        // attempt to fetch user
-        fetchMe(stored).catch(() => {
-          setToken(null);
-          setUser(null);
-          window.localStorage.removeItem("aiclipx_token");
-        });
+        // attempt to fetch user with timeout
+        const timeoutId = setTimeout(() => {
+          // If fetchMe takes too long, just set loading to false and continue
+          console.warn("fetchMe timeout - continuing anyway");
+          setLoading(false);
+        }, 3000); // 3 second timeout
+        
+        fetchMe(stored)
+          .catch(() => {
+            setToken(null);
+            setUser(null);
+            window.localStorage.removeItem("aiclipx_token");
+          })
+          .finally(() => {
+            clearTimeout(timeoutId);
+            setLoading(false);
+          });
+      } else {
+        setLoading(false);
       }
+    } else {
+      setLoading(false);
     }
   }, []);
 
@@ -91,6 +107,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ token, user, login, logout, refreshMe }}>
+      {/* {loading ? (
+        <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+          <div className="text-white">Loading...</div>
+        </div>
+      ) : (
+        children
+      )} */}
       {children}
     </AuthContext.Provider>
   );

@@ -6,7 +6,6 @@ const STATUSES: (VideoStatus | "All")[] = [
   "queued",
   "processing",
   "failed",
-  "draft",
 ];
 
 interface Props {

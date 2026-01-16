@@ -77,16 +77,16 @@ export function showToast(
           borderRadius: 12,
           fontSize: 16,
           display: "flex",
-          alignItems: "center",
+          alignItems: "flex-start",
           gap: 12,
           fontWeight: 600,
           minWidth: 320,
-          justifyContent: "center",
+          maxWidth: 500,
           boxShadow: "0 10px 25px rgba(0,0,0,0.4)",
         }}
       >
-        <Icon style={{ width: 24, height: 24, color: iconColor }} />
-        <span>{message}</span>
+        <Icon style={{ width: 24, height: 24, color: iconColor, flexShrink: 0, marginTop: 2 }} />
+        <span style={{ whiteSpace: "pre-line", textAlign: "left", flex: 1 }}>{message}</span>
       </div>
     );
   };

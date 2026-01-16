@@ -9,9 +9,10 @@ import { showToast } from "../../../common/Toast";
 
 interface Props {
   video: Video;
+  removeVideo: (id: string) => void;
 }
 
-export function VideoListItem({ video }: Props) {
+export function VideoListItem({ video, removeVideo }: Props) {
   const router = useRouter();
   const { status, sort, search } = useVideoListContext();
 
@@ -58,16 +59,21 @@ export function VideoListItem({ video }: Props) {
       await deleteVideoTask(video.id);
       showToast("Video deleted successfully", "success", 1500);
 
-      setTimeout(() => {
-        window.location.reload(); // MVP - refresh to update list
-      }, 1000);
+      // Optimistic update - remove from list immediately
+      removeVideo(video.id);
+      setOpenDelete(false);
     } catch (error: any) {
       console.error("Delete failed:", error);
-      const errorMsg = error?.response?.data?.message || "Delete failed";
+      
+      // Don't show error if it's 401 (already handled by redirect)
+      if (error?.message?.includes("401")) {
+        return;
+      }
+      
+      const errorMsg = error?.message || "Delete failed";
       showToast(errorMsg, "error", 2000);
     } finally {
       setDeleting(false);
-      setOpenDelete(false);
     }
   };
 
@@ -80,25 +86,53 @@ export function VideoListItem({ video }: Props) {
     }
 
     try {
-      showToast("Preparing download…", "success", 2000);
+      showToast("Starting download...", "success", 1500);
 
-      const res = await fetch(video.videoUrl);
-      if (!res.ok) throw new Error("Download failed");
+      // Fetch video with proper error handling
+      const response = await fetch(video.videoUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'video/mp4,video/*',
+        },
+      });
 
-      const blob = await res.blob();
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.status}`);
+      }
 
+      // Get blob from response
+      const blob = await response.blob();
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
+      a.style.display = "none";
+      a.href = url;
       a.download = `${video.title || "video"}-${video.id}.mp4`;
+      
       document.body.appendChild(a);
       a.click();
-      a.remove();
+      
+      // Cleanup
+      setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 100);
 
-      URL.revokeObjectURL(a.href);
-      showToast("Download started", "success");
-    } catch (error) {
+      showToast("Download started successfully", "success");
+    } catch (error: any) {
       console.error("Download failed:", error);
-      showToast("Download failed", "error");
+      
+      // Show specific error message
+      if (error.message?.includes("Failed to fetch")) {
+        showToast("Download failed: Network error or CORS issue", "error", 3000);
+      } else if (error.message?.includes("403")) {
+        showToast("Download failed: Access denied", "error", 3000);
+      } else if (error.message?.includes("404")) {
+        showToast("Download failed: Video not found", "error", 3000);
+      } else {
+        showToast(`Download failed: ${error.message || "Unknown error"}`, "error", 3000);
+      }
     }
   };
 
@@ -246,3 +280,7 @@ export function VideoListItem({ video }: Props) {
     </>
   );
 }
+function removeVideo(id: string) {
+  throw new Error("Function not implemented.");
+}
+

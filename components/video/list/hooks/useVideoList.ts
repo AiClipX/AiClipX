@@ -11,6 +11,8 @@ const SEARCH_DEBOUNCE_MS = 800;
 const MAX_ITEMS = 300;
 const MAX_REQUESTS = 10;
 const POLL_INTERVAL_MS = 5000;
+const INITIAL_LOAD_TIMEOUT_MS = 30000; // 30 seconds
+const RETRY_INTERVAL_MS = 10000; // 10 seconds for background retry
 
 const CREATING_STATUSES: VideoStatus[] = ["queued", "processing"];
 
@@ -28,6 +30,12 @@ export function useVideoList() {
 
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isCapped, setIsCapped] = useState(false);
+  
+  // Track if this is initial load and if we're retrying in background
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [backgroundRetrying, setBackgroundRetrying] = useState(false);
+  const timeoutTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   /* =====================
      SEARCH DEBOUNCE
@@ -67,6 +75,17 @@ export function useVideoList() {
   };
 
   /* =====================
+     REMOVE VIDEO
+  ===================== */
+  const removeVideo = (videoId: string) => {
+    setVideos((prev) => prev.filter((v) => v.id !== videoId));
+    
+    // Clear cache to force refresh on next page load
+    pagesCache.current.clear();
+    pageCursors.current.clear();
+  };
+
+  /* =====================
      FETCH PAGE
   ===================== */
   const fetchPage = async (
@@ -79,12 +98,31 @@ export function useVideoList() {
     }
     setTimeoutError(false);
 
+    // Clear any existing timers
+    if (timeoutTimerRef.current) {
+      clearTimeout(timeoutTimerRef.current);
+      timeoutTimerRef.current = null;
+    }
+
+    // Set timeout for initial load only
+    if (isInitialLoad && !silent) {
+      timeoutTimerRef.current = setTimeout(() => {
+        setTimeoutError(true);
+        setBackgroundRetrying(true);
+        // Don't stop loading, continue in background
+      }, INITIAL_LOAD_TIMEOUT_MS);
+    }
+
     if (!force && pagesCache.current.has(pageIndex)) {
       setVideos(pagesCache.current.get(pageIndex)!);
       setCurrentPage(pageIndex);
       setHasNext(pageCursors.current.get(pageIndex) != null);
       if (!silent) {
         setLoading(false);
+      }
+      if (timeoutTimerRef.current) {
+        clearTimeout(timeoutTimerRef.current);
+        timeoutTimerRef.current = null;
       }
       return;
     }
@@ -108,9 +146,34 @@ export function useVideoList() {
       setVideos(pageVideos);
       setCurrentPage(pageIndex);
       setHasNext(!!res.nextCursor);
+      
+      // Success! Clear timeout and error states
+      if (timeoutTimerRef.current) {
+        clearTimeout(timeoutTimerRef.current);
+        timeoutTimerRef.current = null;
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      setTimeoutError(false);
+      setBackgroundRetrying(false);
+      setIsInitialLoad(false);
     } catch (err) {
       console.error("Fetch page error:", err);
-      setTimeoutError(true);
+      
+      if (isInitialLoad) {
+        setTimeoutError(true);
+        setBackgroundRetrying(true);
+        
+        // Start background retry
+        if (!retryTimerRef.current) {
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            fetchPage(pageIndex, true, true); // Retry silently
+          }, RETRY_INTERVAL_MS);
+        }
+      }
     } finally {
       if (!silent) {
         setLoading(false);
@@ -171,13 +234,27 @@ export function useVideoList() {
     pagesCache.current.clear();
     pageCursors.current.clear();
     setCurrentPage(1);
+    setIsInitialLoad(true);
     fetchPage(1, true);
   }, [status, sort, debouncedSearch]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutTimerRef.current) {
+        clearTimeout(timeoutTimerRef.current);
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+      }
+    };
+  }, []);
 
   return {
     videos,
     loading,
     timeoutError,
+    backgroundRetrying,
     currentPage,
     canNext: hasNext,
     canPrev: currentPage > 1,
@@ -186,9 +263,11 @@ export function useVideoList() {
     refetch: () => {
       pagesCache.current.clear();
       pageCursors.current.clear();
+      setIsInitialLoad(false); // Manual refetch, don't show timeout
       fetchPage(1, true);
     },
     isCapped,
     prependVideo,
+    removeVideo,
   };
 }

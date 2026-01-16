@@ -10,14 +10,29 @@ type Props = {
   onCreated?: (newVideo: Video) => void;
 };
 
+type DebugInfo = {
+  endpoint: string;
+  method: string;
+  status: number | null;
+  requestId: string | null;
+  idempotencyKey: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  timestamp: string;
+};
+
 export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   const router = useRouter();
   const { mutate, isPending } = useCreateVideo();
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [engine, setEngine] = useState("mock"); // Changed to "mock" - runway requires sourceImageUrl
+  const [engine, setEngine] = useState("mock");
   const [durationSec, setDurationSec] = useState(5);
   const [ratio, setRatio] = useState("16:9");
+
+  // Debug panel state
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
 
   const handleSubmit = () => {
     if (!title.trim() || !prompt.trim()) {
@@ -36,9 +51,10 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
       },
     };
 
-    console.log("=== SUBMITTING PAYLOAD ===");
-    console.log("Payload:", payload);
-    console.log("JSON:", JSON.stringify(payload, null, 2));
+    // Generate idempotency key (already in videoService, but we track it here for debug)
+    const idempotencyKey = `create_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
+    const endpoint = `${apiBase}/api/video-tasks`;
 
     mutate(payload, {
       onSuccess: (newVideo: Video) => {
@@ -48,45 +64,50 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         // Reset form
         setTitle("");
         setPrompt("");
-        setEngine("mock"); // Changed to "mock"
+        setEngine("mock");
         setDurationSec(5);
         setRatio("16:9");
-
-        onClose();
         
-        // Navigate to detail page immediately
-        router.push(`/dashboard/videos/${newVideo.id}`);
+        // Clear debug panel on success
+        setDebugInfo(null);
+        setShowDebug(false);
+
+        // Navigate to detail page after a short delay
+        setTimeout(() => {
+          onClose();
+          router.push(`/dashboard/videos/${newVideo.id}`);
+        }, 1000);
       },
       onError: (error: any) => {
-        console.error("=== CREATE VIDEO ERROR ===");
-        console.error("Full error:", error);
-        console.error("Response status:", error?.response?.status);
-        console.error("Response headers:", error?.response?.headers);
-        console.error("Response data:", error?.response?.data);
+        // Extract error details
+        const requestId = error?.requestId || 
+                         error?.response?.data?.requestId || 
+                         error?.response?.headers?.["x-request-id"] ||
+                         "unknown";
         
-        // Log requestId if available
-        const requestId = error?.response?.data?.requestId || 
-                         error?.response?.headers?.["x-request-id"];
-        if (requestId) {
-          console.error("X-Request-Id:", requestId);
-        }
-        
-        // Parse error message from API spec format
-        let errorMsg = "Create video failed. Please try again.";
-        if (error?.response?.data) {
-          const errorData = error.response.data;
-          if (errorData.message) {
-            errorMsg = errorData.message;
-          }
-          if (errorData.code) {
-            errorMsg = `${errorData.code}: ${errorMsg}`;
-          }
-          if (errorData.details) {
-            console.error("Error details:", errorData.details);
-          }
-        }
-        
-        showToast(errorMsg, "error", 4000);
+        const status = error?.response?.status || error?.status || null;
+        const errorCode = error?.response?.data?.code || error?.code || null;
+        const errorMessage = error?.message || error?.response?.data?.message || "Unknown error";
+
+        // Show debug info only on error
+        setDebugInfo({
+          endpoint,
+          method: "POST",
+          status,
+          requestId,
+          idempotencyKey,
+          errorCode,
+          errorMessage,
+          timestamp: new Date().toISOString(),
+        });
+        setShowDebug(true);
+
+        // Show user-friendly error
+        showToast(
+          `Failed to create video\n${errorMessage}${requestId !== "unknown" ? `\nRequest ID: ${requestId}` : ""}`,
+          "error",
+          5000
+        );
       },
     });
   };
@@ -94,8 +115,8 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="bg-neutral-900 rounded-lg p-6 w-full max-w-md text-white">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-neutral-900 rounded-lg p-6 w-full max-w-2xl text-white max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-semibold mb-4">Create Video Task</h2>
 
         <div className="space-y-4">
@@ -166,6 +187,59 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
               <option value="1:1">1:1 (Square)</option>
             </select>
           </div>
+
+          {/* Request Debug Panel */}
+          {debugInfo && (
+            <div className="border border-neutral-700 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setShowDebug(!showDebug)}
+                className="w-full px-4 py-2 bg-neutral-800 hover:bg-neutral-750 flex items-center justify-between text-sm font-medium transition-colors"
+              >
+                <span>🔍 Request Debug</span>
+                <span>{showDebug ? "▼" : "▶"}</span>
+              </button>
+              
+              {showDebug && (
+                <div className="p-4 bg-neutral-850 space-y-2 text-xs font-mono">
+                  <div className="grid grid-cols-[120px_1fr] gap-2">
+                    <span className="text-neutral-400">Endpoint:</span>
+                    <span className="text-blue-400 break-all">{debugInfo.endpoint}</span>
+                    
+                    <span className="text-neutral-400">Method:</span>
+                    <span className="text-white">{debugInfo.method}</span>
+                    
+                    <span className="text-neutral-400">Status:</span>
+                    <span className={debugInfo.status === 201 ? "text-green-400" : debugInfo.status ? "text-red-400" : "text-yellow-400"}>
+                      {debugInfo.status || "Pending..."}
+                    </span>
+                    
+                    <span className="text-neutral-400">Request ID:</span>
+                    <span className="text-white">{debugInfo.requestId || "N/A"}</span>
+                    
+                    <span className="text-neutral-400">Idempotency Key:</span>
+                    <span className="text-white break-all">{debugInfo.idempotencyKey}</span>
+                    
+                    <span className="text-neutral-400">Timestamp:</span>
+                    <span className="text-white">{new Date(debugInfo.timestamp).toLocaleString()}</span>
+                    
+                    {debugInfo.errorCode && (
+                      <>
+                        <span className="text-neutral-400">Error Code:</span>
+                        <span className="text-red-400">{debugInfo.errorCode}</span>
+                      </>
+                    )}
+                    
+                    {debugInfo.errorMessage && (
+                      <>
+                        <span className="text-neutral-400">Error Message:</span>
+                        <span className="text-red-400">{debugInfo.errorMessage}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 mt-6">

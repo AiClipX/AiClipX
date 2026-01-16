@@ -91,11 +91,12 @@ export async function fetchVideosCursor(params: {
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
+    // Only logout on actual 401, not network errors
+    if (response.status === 401 && typeof window !== "undefined") {
       localStorage.removeItem("aiclipx_token");
       window.location.href = "/login";
     }
-    throw new Error("Failed to fetch videos");
+    throw new Error(`Failed to fetch videos: ${response.status}`);
   }
 
   const data = await response.json();
@@ -121,17 +122,18 @@ export async function getVideoById(id: string): Promise<Video | null> {
     }
     
     if (!response.ok) {
-      if (response.status === 401) {
+      // Only logout on actual 401
+      if (response.status === 401 && typeof window !== "undefined") {
         localStorage.removeItem("aiclipx_token");
         window.location.href = "/login";
       }
-      throw new Error("Failed to fetch video");
+      throw new Error(`Failed to fetch video: ${response.status}`);
     }
     
     const data = await response.json();
     return parseVideo(data);
   } catch (err: any) {
-    if (err?.message === "Failed to fetch video") {
+    if (err?.message?.includes("Failed to fetch video")) {
       throw err;
     }
     return null;
@@ -165,12 +167,15 @@ export async function createVideoTask(payload: {
     if (!response.ok) {
       const errorData = await response.json();
       
-      if (response.status === 401) {
+      // Only logout on actual 401
+      if (response.status === 401 && typeof window !== "undefined") {
         localStorage.removeItem("aiclipx_token");
         window.location.href = "/login";
       }
       
-      throw new Error(errorData.message || "Failed to create video");
+      const error = new Error(errorData.message || "Failed to create video");
+      (error as any).requestId = requestId;
+      throw error;
     }
     
     const data = await response.json();
@@ -193,10 +198,11 @@ export async function deleteVideoTask(id: string) {
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
+    // Only logout on actual 401
+    if (response.status === 401 && typeof window !== "undefined") {
       localStorage.removeItem("aiclipx_token");
       window.location.href = "/login";
     }
-    throw new Error("Failed to delete video");
+    throw new Error(`Failed to delete video: ${response.status}`);
   }
 }
