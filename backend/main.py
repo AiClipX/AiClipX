@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -75,7 +76,14 @@ app.state.limiter = limiter
 async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     """Return 429 with standard {code, message, requestId} format."""
     request_id = getattr(request.state, "request_id", f"req_{uuid4().hex[:8]}")
-    logger.warning(f"[{request_id}] Rate limit exceeded: {exc.detail}")
+    user_id = getattr(request.state, "user_id", None)
+    user_masked = user_id[:8] + "..." if user_id else "-"
+    origin = request.headers.get("Origin", "-")
+
+    logger.warning(
+        f"[{request_id}] ERROR RATE_LIMIT_EXCEEDED: {exc.detail} | "
+        f"user={user_masked} origin={origin}"
+    )
     return JSONResponse(
         status_code=429,
         content={
@@ -90,8 +98,11 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Request ID middleware (BE-STG8: reuse client's X-Request-Id if provided)
+# BE-STG11-006: Structured logging with latency, user, origin, idempotency
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+
         # Reuse client's X-Request-Id if provided, otherwise generate new one
         client_request_id = request.headers.get("X-Request-Id")
         if client_request_id and len(client_request_id) <= 64:
@@ -99,12 +110,31 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         else:
             request_id = f"req_{uuid4().hex[:8]}"
 
+        # Extract headers for logging
+        origin = request.headers.get("Origin", "-")
+        idemp_key = request.headers.get("Idempotency-Key", "")
+        idemp_prefix = idemp_key[:8] + "..." if idemp_key else "-"
+
         request.state.request_id = request_id
-        logger.info(f"[{request_id}] {request.method} {request.url.path}")
+        request.state.start_time = start_time
 
         response = await call_next(request)
+
+        # Calculate latency
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        # Get user_id if authenticated (set by auth dependency)
+        user_id = getattr(request.state, "user_id", None)
+        user_masked = user_id[:8] + "..." if user_id else "-"
+
+        # Structured log line
+        logger.info(
+            f"[{request_id}] {request.method} {request.url.path} "
+            f"→ {response.status_code} | {latency_ms}ms | "
+            f"user={user_masked} origin={origin} idemp={idemp_prefix}"
+        )
+
         response.headers["X-Request-Id"] = request_id
-        logger.info(f"[{request_id}] Response: {response.status_code}")
         return response
 
 
@@ -149,10 +179,18 @@ class ErrorResponse(BaseModel):
 
 
 # Exception handlers for standard error format
+# BE-STG11-006: Structured error logging with category
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     request_id = getattr(request.state, "request_id", "unknown")
-    logger.error(f"[{request_id}] Unhandled error: {exc}")
+    user_id = getattr(request.state, "user_id", None)
+    user_masked = user_id[:8] + "..." if user_id else "-"
+    origin = request.headers.get("Origin", "-")
+
+    logger.error(
+        f"[{request_id}] ERROR INTERNAL_ERROR: {type(exc).__name__} | "
+        f"user={user_masked} origin={origin}"
+    )
     return JSONResponse(
         status_code=500,
         content={
@@ -168,7 +206,14 @@ async def generic_exception_handler(request: Request, exc: Exception):
 @app.exception_handler(FastAPIHTTPException)
 async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
     request_id = getattr(request.state, "request_id", "unknown")
-    logger.warning(f"[{request_id}] HTTP {exc.status_code}: {exc.detail}")
+    user_id = getattr(request.state, "user_id", None)
+    user_masked = user_id[:8] + "..." if user_id else "-"
+    origin = request.headers.get("Origin", "-")
+
+    logger.warning(
+        f"[{request_id}] ERROR HTTP_{exc.status_code}: {exc.detail} | "
+        f"user={user_masked} origin={origin}"
+    )
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -184,13 +229,21 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     request_id = getattr(request.state, "request_id", "unknown")
+    user_id = getattr(request.state, "user_id", None)
+    user_masked = user_id[:8] + "..." if user_id else "-"
+    origin = request.headers.get("Origin", "-")
+
     errors = exc.errors()
-    logger.warning(f"[{request_id}] Validation error: {errors}")
 
     # Extract first error for human-readable message
     first_error = errors[0] if errors else {}
     field = ".".join(str(x) for x in first_error.get("loc", []))
     msg = first_error.get("msg", "Validation failed")
+
+    logger.warning(
+        f"[{request_id}] ERROR VALIDATION_ERROR: {field}: {msg} | "
+        f"user={user_masked} origin={origin}"
+    )
 
     # Convert errors to JSON-serializable format
     serializable_errors = [

@@ -188,6 +188,9 @@ async def get_current_user(
 
     logger.info(f"[{request_id}] Authenticated user: {user_id[:8]}...")
 
+    # BE-STG11-006: Set user_id in request.state for structured logging
+    request.state.user_id = user_id
+
     return user
 
 
