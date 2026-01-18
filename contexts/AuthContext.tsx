@@ -115,13 +115,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ token, user, login, logout, refreshMe }}>
-      {loading ? (
+      {/* {loading ? (
         <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
           <div className="text-white">Loading...</div>
         </div>
       ) : (
-        children
+       children
       )}
+         */}
+      {
+        children
+      }
     </AuthContext.Provider>
   );
 };

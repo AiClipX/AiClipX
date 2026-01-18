@@ -1,4 +1,5 @@
 import { Video, VideoStatus } from "../types/videoTypes";
+import { config, safeLog } from "../../../lib/config";
 
 /* =====================
    Helpers
@@ -13,7 +14,7 @@ function getPlaceholderThumbnail(video: any): string {
 function parseVideo(raw: any): Video {
   // Defensive parsing: never pretend a completed task has a video URL.
   if (raw.status === "completed" && !raw.videoUrl) {
-    console.warn(`Video ${raw.id} reported as 'completed' but missing videoUrl`);
+    safeLog(`Video ${raw.id} reported as 'completed' but missing videoUrl`);
   }
 
   return {
@@ -81,10 +82,9 @@ export async function fetchVideosCursor(params: {
   status?: string;
 }): Promise<{ data: Video[]; nextCursor?: string }> {
   const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
-  const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
   
   const queryParams = new URLSearchParams(buildCursorParams(params) as any);
-  const response = await fetch(`${apiBase}/api/video-tasks?${queryParams}`, {
+  const response = await fetch(`${config.apiBaseUrl}/api/video-tasks?${queryParams}`, {
     headers: {
       "Authorization": token ? `Bearer ${token}` : "",
     },
@@ -109,9 +109,8 @@ export async function fetchVideosCursor(params: {
 export async function getVideoById(id: string): Promise<Video | null> {
   try {
     const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
-    const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
     
-    const response = await fetch(`${apiBase}/api/video-tasks/${id}`, {
+    const response = await fetch(`${config.apiBaseUrl}/api/video-tasks/${id}`, {
       headers: {
         "Authorization": token ? `Bearer ${token}` : "",
       },
@@ -153,7 +152,7 @@ export async function createVideoTask(payload: {
     const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
     const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
     
-    const response = await fetch(`${apiBase}/api/video-tasks`, {
+    const response = await fetch(`${config.apiBaseUrl}/api/video-tasks`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -188,9 +187,8 @@ export async function createVideoTask(payload: {
 
 export async function deleteVideoTask(id: string) {
   const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
-  const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
   
-  const response = await fetch(`${apiBase}/api/video-tasks/${id}`, {
+  const response = await fetch(`${config.apiBaseUrl}/api/video-tasks/${id}`, {
     method: "DELETE",
     headers: {
       "Authorization": token ? `Bearer ${token}` : "",

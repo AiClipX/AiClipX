@@ -1,10 +1,18 @@
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
+import { config, safeLog } from "./config";
 
-// Use proxy in development to avoid CORS, direct API in production
-const API_BASE = process.env.NODE_ENV === "development" 
+// Use centralized config for API base URL
+const API_BASE = config.isDevelopment 
   ? "/api/proxy" 
-  : process.env.NEXT_PUBLIC_API_VIDEO || "";
+  : config.apiBaseUrl;
+
+// Safe logging of API configuration (no secrets)
+safeLog("API Client initialized", { 
+  environment: config.environment, 
+  apiBase: API_BASE,
+  isDevelopment: config.isDevelopment 
+});
 
 const axiosInstance = axios.create({ baseURL: API_BASE });
 
@@ -29,7 +37,8 @@ async function getAuthToken(): Promise<string | null> {
     const { data } = await supabase.auth.getSession();
     return data?.session?.access_token ?? null;
   } catch (err) {
-    console.warn("getAuthToken error", err);
+    // Safe logging - no token details
+    safeLog("getAuthToken error (no sensitive data)", { hasError: !!err });
     return null;
   }
 }
