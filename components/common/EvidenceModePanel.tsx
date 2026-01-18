@@ -25,7 +25,9 @@ const EvidenceModePanel: React.FC = () => {
       setCalls(apiCallTracker.getCalls(5));
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+    };
   }, [isEnabled]);
 
   if (!isEnabled) return null;

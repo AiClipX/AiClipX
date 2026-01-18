@@ -1,7 +1,7 @@
 import { Video, VideoStatus } from "../types/videoTypes";
 import { config, safeLog } from "../../../lib/config";
-import { handleAuthError, getSafeErrorMessage, generateRequestId, isAuthError } from "../../../lib/authErrorHandler";
-import { apiCallTracker, extractRequestId } from "../../../lib/apiCallTracker";
+import { getSafeErrorMessage, generateRequestId } from "../../../lib/authErrorHandler";
+import axios from "../../../lib/apiClient";
 
 /* =====================
    Helpers
@@ -83,111 +83,27 @@ export async function fetchVideosCursor(params: {
   q?: string;
   status?: string;
 }): Promise<{ data: Video[]; nextCursor?: string }> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
-  const requestId = generateRequestId();
-  const startTime = Date.now();
-  
   const queryParams = new URLSearchParams(buildCursorParams(params) as any);
-  const endpoint = `${config.apiBaseUrl}/api/video-tasks?${queryParams}`;
   
-  try {
-    const response = await fetch(endpoint, {
-      headers: {
-        "Authorization": token ? `Bearer ${token}` : "",
-        "X-Request-Id": requestId,
-      },
-    });
-
-    const duration = Date.now() - startTime;
-    const responseRequestId = response.headers.get('X-Request-Id') || requestId;
-
-    if (!response.ok) {
-      // Track failed call
-      apiCallTracker.addCall({
-        method: 'GET',
-        endpoint,
-        status: response.status,
-        requestId: responseRequestId,
-        duration,
-        error: `Failed to fetch videos: ${response.status}`,
-      });
-
-      // Handle auth errors consistently
-      if (response.status === 401 || response.status === 403) {
-        handleAuthError({
-          status: response.status as 401 | 403,
-          message: "Authentication failed",
-          requestId: responseRequestId
-        });
-      }
-      throw new Error(`Failed to fetch videos: ${response.status}`);
-    }
-
-    // Track successful call
-    apiCallTracker.addCall({
-      method: 'GET',
-      endpoint,
-      status: response.status,
-      requestId: responseRequestId,
-      duration,
-    });
-
-    const data = await response.json();
-    return {
-      data: data.data.map(parseVideo),
-      nextCursor: data.nextCursor,
-    };
-  } catch (error: any) {
-    // Track error if not already tracked
-    if (!error.message?.includes('Failed to fetch videos')) {
-      apiCallTracker.addCall({
-        method: 'GET',
-        endpoint,
-        status: null,
-        requestId,
-        duration: Date.now() - startTime,
-        error: error.message,
-      });
-    }
-    throw error;
-  }
+  const response = await axios.get(`/api/video-tasks?${queryParams}`);
+  
+  return {
+    data: response.data.data.map(parseVideo),
+    nextCursor: response.data.nextCursor,
+  };
 }
 
 export async function getVideoById(id: string): Promise<Video | null> {
   try {
-    const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
-    const requestId = generateRequestId();
-    
-    const response = await fetch(`${config.apiBaseUrl}/api/video-tasks/${id}`, {
-      headers: {
-        "Authorization": token ? `Bearer ${token}` : "",
-        "X-Request-Id": requestId,
-      },
-    });
-    
-    if (response.status === 404) {
+    const response = await axios.get(`/api/video-tasks/${id}`);
+    return parseVideo(response.data);
+  } catch (err: any) {
+    // 404 is expected - video not found
+    if (err?.response?.status === 404) {
       return null;
     }
-    
-    if (!response.ok) {
-      // Handle auth errors consistently
-      if (response.status === 401 || response.status === 403) {
-        handleAuthError({
-          status: response.status as 401 | 403,
-          message: "Authentication failed",
-          requestId
-        });
-      }
-      throw new Error(`Failed to fetch video: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    return parseVideo(data);
-  } catch (err: any) {
-    if (err?.message?.includes("Failed to fetch video")) {
-      throw err;
-    }
-    return null;
+    // Other errors should be thrown
+    throw err;
   }
 }
 
@@ -201,66 +117,31 @@ export async function createVideoTask(payload: {
   const idempotencyKey = `create_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
   try {
-    const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
-    
-    const response = await fetch(`${config.apiBaseUrl}/api/video-tasks`, {
-      method: "POST",
+    const response = await axios.post('/api/video-tasks', payload, {
       headers: {
-        "Content-Type": "application/json",
-        "Authorization": token ? `Bearer ${token}` : "",
         "X-Request-Id": requestId,
         "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify(payload),
     });
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      
-      // Handle auth errors consistently
-      if (response.status === 401 || response.status === 403) {
-        handleAuthError({
-          status: response.status as 401 | 403,
-          message: errorData.message || "Authentication failed",
-          requestId
-        });
-      }
-      
-      // Create safe error with requestId
-      const error = new Error(getSafeErrorMessage(errorData, requestId));
-      (error as any).requestId = requestId;
-      throw error;
-    }
-    
-    const data = await response.json();
-    return parseVideo(data);
+    return parseVideo(response.data);
   } catch (error: any) {
     safeLog("Create video error (no sensitive data)", { hasError: !!error, requestId });
-    throw error;
+    
+    // Re-throw with safe error message
+    const safeMessage = getSafeErrorMessage(error, requestId);
+    const err = new Error(safeMessage);
+    (err as any).requestId = requestId;
+    throw err;
   }
 }
 
 export async function deleteVideoTask(id: string) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
   const requestId = generateRequestId();
   
-  const response = await fetch(`${config.apiBaseUrl}/api/video-tasks/${id}`, {
-    method: "DELETE",
+  await axios.delete(`/api/video-tasks/${id}`, {
     headers: {
-      "Authorization": token ? `Bearer ${token}` : "",
       "X-Request-Id": requestId,
     },
   });
-
-  if (!response.ok) {
-    // Handle auth errors consistently
-    if (response.status === 401 || response.status === 403) {
-      handleAuthError({
-        status: response.status as 401 | 403,
-        message: "Authentication failed",
-        requestId
-      });
-    }
-    throw new Error(`Failed to delete video: ${response.status}`);
-  }
 }
