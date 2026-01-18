@@ -1,81 +1,79 @@
-import { Video } from "../../types/videoTypes";
+import React, { useState } from 'react';
+import { PlayIcon } from '@heroicons/react/24/solid';
 
-interface Props {
-  video: Video;
+interface VideoPlayerProps {
+  videoUrl: string;
+  title: string;
+  thumbnail?: string;
 }
 
-export function VideoPlayer({ video }: Props) {
-  // Show different states based on video status
-  if (video.status === "failed") {
-    return (
-      <div className="aspect-video bg-neutral-900 mb-4 flex items-center justify-center text-sm">
-        <div className="p-6 text-center">
-          <div className="text-red-400 text-lg font-semibold mb-2">Video Generation Failed</div>
-          <div className="text-neutral-300 mb-4">
-            {video.errorMessage || "An error occurred during video generation"}
-          </div>
-          <div className="text-xs text-neutral-500">
-            Task ID: {video.id}
-          </div>
-        </div>
-      </div>
-    );
-  }
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, title, thumbnail }) => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
 
-  if (video.status === "processing" || video.status === "queued") {
-    return (
-      <div className="aspect-video bg-neutral-900 mb-4 flex items-center justify-center text-sm">
-        <div className="p-6 text-center">
-          <div className="text-blue-400 text-lg font-semibold mb-2">
-            {video.status === "processing" ? "Processing Video..." : "Video Queued"}
-          </div>
-          <div className="text-neutral-300 mb-4">
-            {video.status === "processing" 
-              ? `Progress: ${video.progress}%` 
-              : "Your video is in the queue and will be processed soon"
-            }
-          </div>
-          {video.status === "processing" && (
-            <div className="w-full bg-neutral-700 rounded-full h-2 mb-4">
-              <div 
-                className="bg-blue-500 h-2 rounded-full transition-all duration-300" 
-                style={{ width: `${video.progress}%` }}
-              ></div>
-            </div>
-          )}
-          <div className="text-xs text-neutral-500">
-            Task ID: {video.id}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const handleLoadStart = () => {
+    setIsLoading(true);
+    setHasError(false);
+  };
 
-  if (!video.videoUrl) {
+  const handleCanPlay = () => {
+    setIsLoading(false);
+  };
+
+  const handleError = () => {
+    setIsLoading(false);
+    setHasError(true);
+  };
+
+  if (hasError) {
     return (
-      <div className="aspect-video bg-neutral-900 mb-4 flex items-center justify-center text-sm text-neutral-300">
-        <div className="p-4 text-center">
-          <div className="mb-2">Video completed but URL not available</div>
-          <div className="text-neutral-500">Please contact support if this persists.</div>
-          <div className="text-xs text-neutral-500 mt-2">
-            Task ID: {video.id}
-          </div>
+      <div className="w-full aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
+        <div className="text-center text-white p-8">
+          <XCircleIcon className="w-16 h-16 mx-auto mb-4 text-red-400" />
+          <h3 className="text-xl font-semibold mb-2">Failed to Load Video</h3>
+          <p className="text-gray-400 mb-4">The video file could not be loaded.</p>
+          <a
+            href={videoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:text-blue-300 underline"
+          >
+            Try opening in new tab
+          </a>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="aspect-video bg-black mb-4 rounded-lg overflow-hidden">
+    <div className="relative w-full aspect-video bg-gray-900 rounded-lg overflow-hidden">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+          <div className="text-center text-white">
+            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading video...</p>
+          </div>
+        </div>
+      )}
+      
       <video
-        src={video.videoUrl}
-        controls
         className="w-full h-full"
-        poster={video.sourceImageUrl || undefined}
-        onError={() =>
-          console.error(`Cannot play video "${video.title}" - URL invalid or file missing`)
-        }
-      />
+        controls
+        preload="metadata"
+        poster={thumbnail}
+        onLoadStart={handleLoadStart}
+        onCanPlay={handleCanPlay}
+        onError={handleError}
+      >
+        <source src={videoUrl} type="video/mp4" />
+        <source src={videoUrl} type="video/webm" />
+        Your browser does not support the video tag.
+      </video>
     </div>
   );
-}
+};
+
+// Import XCircleIcon
+import { XCircleIcon } from '@heroicons/react/24/solid';
+
+export default VideoPlayer;
