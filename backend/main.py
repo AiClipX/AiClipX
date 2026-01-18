@@ -17,7 +17,6 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from contextlib import asynccontextmanager
@@ -68,9 +67,27 @@ app = FastAPI(
     description="AiClipX Backend API - Video generation and Text-to-Speech services",
 )
 
-# Attach rate limiter to app state and add exception handler
+# Attach rate limiter to app state
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# BE-STG11-005: Custom rate limit handler with standard error envelope
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    """Return 429 with standard {code, message, requestId} format."""
+    request_id = getattr(request.state, "request_id", f"req_{uuid4().hex[:8]}")
+    logger.warning(f"[{request_id}] Rate limit exceeded: {exc.detail}")
+    return JSONResponse(
+        status_code=429,
+        content={
+            "code": "RATE_LIMIT_EXCEEDED",
+            "message": f"Too many requests. {exc.detail}",
+            "requestId": request_id,
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Request ID middleware (BE-STG8: reuse client's X-Request-Id if provided)
 class RequestIdMiddleware(BaseHTTPMiddleware):

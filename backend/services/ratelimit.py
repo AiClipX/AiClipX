@@ -5,14 +5,31 @@ Rate limiting configuration for API endpoints.
 Protects expensive operations from abuse:
 - Video task creation (uses Runway API credits)
 - TTS generation (uses Azure API credits)
+- Auth signin (brute-force prevention)
 """
 
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+from starlette.requests import Request
 
-# Rate limiter using client IP address
-# Storage is in-memory by default (consider Redis for production clusters)
-limiter = Limiter(key_func=get_remote_address)
+
+def get_real_ip(request: Request) -> str:
+    """
+    Get real client IP behind proxy (Render, Cloudflare, etc.).
+    Uses X-Forwarded-For header if available.
+    """
+    # X-Forwarded-For: client, proxy1, proxy2
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+
+    # Fallback to direct client IP
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
+# Rate limiter using real client IP (handles proxies)
+limiter = Limiter(key_func=get_real_ip)
 
 # Rate limit constants
 # Format: "X per Y" where Y is second, minute, hour, day
