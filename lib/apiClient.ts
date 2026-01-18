@@ -1,7 +1,8 @@
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import { config, safeLog } from "./config";
-import { handleAuthError, isAuthError } from "./authErrorHandler";
+import { handleAuthError, isAuthError, generateRequestId } from "./authErrorHandler";
+import { apiCallTracker, extractRequestId, formatEndpoint } from "./apiCallTracker";
 
 // Use centralized config for API base URL
 const API_BASE = config.isDevelopment 
@@ -44,13 +45,18 @@ async function getAuthToken(): Promise<string | null> {
   }
 }
 
-// Attach auth header when available
+// Attach auth header and requestId when available
 axiosInstance.interceptors.request.use(async (config) => {
   const token = await getAuthToken();
-  // Use a typed-safe approach: mutate headers via cast to any to satisfy Axios typings.
   const headers = (config.headers || {}) as Record<string, any>;
+  
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  // Add requestId to all requests
+  if (!headers["X-Request-Id"]) {
+    headers["X-Request-Id"] = generateRequestId();
   }
 
   // Ensure JSON Content-Type for POST/PUT/PATCH
@@ -62,13 +68,46 @@ axiosInstance.interceptors.request.use(async (config) => {
   }
 
   config.headers = headers as any;
+  
+  // Track request start
+  (config as any).__startTime = Date.now();
+  
   return config;
 });
 
-// Response interceptor: handle 401/403 consistently
+// Response interceptor: handle 401/403 consistently and track calls
 axiosInstance.interceptors.response.use(
-  (resp) => resp,
+  (resp) => {
+    // Track successful call
+    const duration = (resp.config as any).__startTime 
+      ? Date.now() - (resp.config as any).__startTime 
+      : undefined;
+    
+    apiCallTracker.addCall({
+      method: (resp.config.method || 'GET').toUpperCase(),
+      endpoint: resp.config.url || '',
+      status: resp.status,
+      requestId: extractRequestId(resp),
+      duration,
+    });
+    
+    return resp;
+  },
   (error) => {
+    // Track failed call
+    const duration = (error.config as any)?.__startTime 
+      ? Date.now() - (error.config as any).__startTime 
+      : undefined;
+    
+    apiCallTracker.addCall({
+      method: (error.config?.method || 'GET').toUpperCase(),
+      endpoint: error.config?.url || '',
+      status: error.response?.status || null,
+      requestId: error.config?.headers?.["X-Request-Id"] || extractRequestId(error.response),
+      duration,
+      error: error.message,
+    });
+    
     try {
       const status = error?.response?.status;
       

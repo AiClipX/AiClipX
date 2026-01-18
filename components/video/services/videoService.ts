@@ -1,6 +1,7 @@
 import { Video, VideoStatus } from "../types/videoTypes";
 import { config, safeLog } from "../../../lib/config";
 import { handleAuthError, getSafeErrorMessage, generateRequestId, isAuthError } from "../../../lib/authErrorHandler";
+import { apiCallTracker, extractRequestId } from "../../../lib/apiCallTracker";
 
 /* =====================
    Helpers
@@ -84,32 +85,72 @@ export async function fetchVideosCursor(params: {
 }): Promise<{ data: Video[]; nextCursor?: string }> {
   const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
   const requestId = generateRequestId();
+  const startTime = Date.now();
   
   const queryParams = new URLSearchParams(buildCursorParams(params) as any);
-  const response = await fetch(`${config.apiBaseUrl}/api/video-tasks?${queryParams}`, {
-    headers: {
-      "Authorization": token ? `Bearer ${token}` : "",
-      "X-Request-Id": requestId,
-    },
-  });
+  const endpoint = `${config.apiBaseUrl}/api/video-tasks?${queryParams}`;
+  
+  try {
+    const response = await fetch(endpoint, {
+      headers: {
+        "Authorization": token ? `Bearer ${token}` : "",
+        "X-Request-Id": requestId,
+      },
+    });
 
-  if (!response.ok) {
-    // Handle auth errors consistently
-    if (response.status === 401 || response.status === 403) {
-      handleAuthError({
-        status: response.status as 401 | 403,
-        message: "Authentication failed",
-        requestId
+    const duration = Date.now() - startTime;
+    const responseRequestId = response.headers.get('X-Request-Id') || requestId;
+
+    if (!response.ok) {
+      // Track failed call
+      apiCallTracker.addCall({
+        method: 'GET',
+        endpoint,
+        status: response.status,
+        requestId: responseRequestId,
+        duration,
+        error: `Failed to fetch videos: ${response.status}`,
+      });
+
+      // Handle auth errors consistently
+      if (response.status === 401 || response.status === 403) {
+        handleAuthError({
+          status: response.status as 401 | 403,
+          message: "Authentication failed",
+          requestId: responseRequestId
+        });
+      }
+      throw new Error(`Failed to fetch videos: ${response.status}`);
+    }
+
+    // Track successful call
+    apiCallTracker.addCall({
+      method: 'GET',
+      endpoint,
+      status: response.status,
+      requestId: responseRequestId,
+      duration,
+    });
+
+    const data = await response.json();
+    return {
+      data: data.data.map(parseVideo),
+      nextCursor: data.nextCursor,
+    };
+  } catch (error: any) {
+    // Track error if not already tracked
+    if (!error.message?.includes('Failed to fetch videos')) {
+      apiCallTracker.addCall({
+        method: 'GET',
+        endpoint,
+        status: null,
+        requestId,
+        duration: Date.now() - startTime,
+        error: error.message,
       });
     }
-    throw new Error(`Failed to fetch videos: ${response.status}`);
+    throw error;
   }
-
-  const data = await response.json();
-  return {
-    data: data.data.map(parseVideo),
-    nextCursor: data.nextCursor,
-  };
 }
 
 export async function getVideoById(id: string): Promise<Video | null> {

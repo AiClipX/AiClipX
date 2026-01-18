@@ -4,9 +4,12 @@ import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VideoListProvider } from "../components/video/list/hooks/VideoListContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
+import { EvidenceModeProvider } from "../contexts/EvidenceModeContext";
 import { useRouter } from "next/router";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import EnvironmentBadge from "../components/common/EnvironmentBadge";
+import EvidenceModeToggle from "../components/common/EvidenceModeToggle";
+import EvidenceModePanel from "../components/common/EvidenceModePanel";
 import { logEnvironmentInfo } from "../lib/envValidation";
 
 // Log environment info in development
@@ -65,9 +68,13 @@ function MyApp({ Component, pageProps }) {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <VideoListProvider>
-            <InnerApp Component={Component} pageProps={pageProps} />
-          </VideoListProvider>
+          <EvidenceModeProvider>
+            <VideoListProvider>
+              <InnerApp Component={Component} pageProps={pageProps} />
+              <EvidenceModeToggle />
+              <EvidenceModePanel />
+            </VideoListProvider>
+          </EvidenceModeProvider>
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>
