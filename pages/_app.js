@@ -15,18 +15,26 @@ if (typeof window !== "undefined") {
 }
 
 function InnerApp({ Component, pageProps }) {
-  const { token } = useAuth();
+  const { token, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    // If not on login page and no token, redirect to /login
+    // Don't redirect while still loading token from localStorage
+    if (isLoading) return;
+    
+    // Only redirect to login if:
+    // 1. No token exists (after loading is complete)
+    // 2. User is on a protected page (not login or home)
     if (typeof window !== "undefined") {
-      // Only redirect if we're sure there's no token (not during initial load)
-      if (!token && router.pathname !== "/login" && router.pathname !== "/") {
+      const isProtectedPage = router.pathname.startsWith("/dashboard") || 
+                              router.pathname === "/upload";
+      
+      // Only redirect if on protected page without token (and not loading)
+      if (!token && isProtectedPage && !isLoading) {
         router.push("/login");
       }
     }
-  }, [token, router.pathname]);
+  }, [token, router.pathname, isLoading]);
 
   return (
     <div className="min-h-screen flex flex-col">

@@ -1,5 +1,6 @@
 import { Video, VideoStatus } from "../types/videoTypes";
 import { config, safeLog } from "../../../lib/config";
+import { handleAuthError, getSafeErrorMessage, generateRequestId, isAuthError } from "../../../lib/authErrorHandler";
 
 /* =====================
    Helpers
@@ -82,19 +83,24 @@ export async function fetchVideosCursor(params: {
   status?: string;
 }): Promise<{ data: Video[]; nextCursor?: string }> {
   const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
+  const requestId = generateRequestId();
   
   const queryParams = new URLSearchParams(buildCursorParams(params) as any);
   const response = await fetch(`${config.apiBaseUrl}/api/video-tasks?${queryParams}`, {
     headers: {
       "Authorization": token ? `Bearer ${token}` : "",
+      "X-Request-Id": requestId,
     },
   });
 
   if (!response.ok) {
-    // Only logout on actual 401, not network errors
-    if (response.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("aiclipx_token");
-      window.location.href = "/login";
+    // Handle auth errors consistently
+    if (response.status === 401 || response.status === 403) {
+      handleAuthError({
+        status: response.status as 401 | 403,
+        message: "Authentication failed",
+        requestId
+      });
     }
     throw new Error(`Failed to fetch videos: ${response.status}`);
   }
@@ -109,10 +115,12 @@ export async function fetchVideosCursor(params: {
 export async function getVideoById(id: string): Promise<Video | null> {
   try {
     const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
+    const requestId = generateRequestId();
     
     const response = await fetch(`${config.apiBaseUrl}/api/video-tasks/${id}`, {
       headers: {
         "Authorization": token ? `Bearer ${token}` : "",
+        "X-Request-Id": requestId,
       },
     });
     
@@ -121,10 +129,13 @@ export async function getVideoById(id: string): Promise<Video | null> {
     }
     
     if (!response.ok) {
-      // Only logout on actual 401
-      if (response.status === 401 && typeof window !== "undefined") {
-        localStorage.removeItem("aiclipx_token");
-        window.location.href = "/login";
+      // Handle auth errors consistently
+      if (response.status === 401 || response.status === 403) {
+        handleAuthError({
+          status: response.status as 401 | 403,
+          message: "Authentication failed",
+          requestId
+        });
       }
       throw new Error(`Failed to fetch video: ${response.status}`);
     }
@@ -145,12 +156,11 @@ export async function createVideoTask(payload: {
   engine: string;
   params?: any;
 }): Promise<Video> {
-  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const requestId = generateRequestId();
   const idempotencyKey = `create_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
   try {
     const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
-    const apiBase = process.env.NEXT_PUBLIC_API_VIDEO || "";
     
     const response = await fetch(`${config.apiBaseUrl}/api/video-tasks`, {
       method: "POST",
@@ -164,15 +174,19 @@ export async function createVideoTask(payload: {
     });
     
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = await response.json().catch(() => ({}));
       
-      // Only logout on actual 401
-      if (response.status === 401 && typeof window !== "undefined") {
-        localStorage.removeItem("aiclipx_token");
-        window.location.href = "/login";
+      // Handle auth errors consistently
+      if (response.status === 401 || response.status === 403) {
+        handleAuthError({
+          status: response.status as 401 | 403,
+          message: errorData.message || "Authentication failed",
+          requestId
+        });
       }
       
-      const error = new Error(errorData.message || "Failed to create video");
+      // Create safe error with requestId
+      const error = new Error(getSafeErrorMessage(errorData, requestId));
       (error as any).requestId = requestId;
       throw error;
     }
@@ -180,26 +194,31 @@ export async function createVideoTask(payload: {
     const data = await response.json();
     return parseVideo(data);
   } catch (error: any) {
-    console.error("Create video error:", error);
+    safeLog("Create video error (no sensitive data)", { hasError: !!error, requestId });
     throw error;
   }
 }
 
 export async function deleteVideoTask(id: string) {
   const token = typeof window !== "undefined" ? localStorage.getItem("aiclipx_token") : null;
+  const requestId = generateRequestId();
   
   const response = await fetch(`${config.apiBaseUrl}/api/video-tasks/${id}`, {
     method: "DELETE",
     headers: {
       "Authorization": token ? `Bearer ${token}` : "",
+      "X-Request-Id": requestId,
     },
   });
 
   if (!response.ok) {
-    // Only logout on actual 401
-    if (response.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("aiclipx_token");
-      window.location.href = "/login";
+    // Handle auth errors consistently
+    if (response.status === 401 || response.status === 403) {
+      handleAuthError({
+        status: response.status as 401 | 403,
+        message: "Authentication failed",
+        requestId
+      });
     }
     throw new Error(`Failed to delete video: ${response.status}`);
   }

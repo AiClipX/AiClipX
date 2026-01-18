@@ -1,6 +1,7 @@
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import { config, safeLog } from "./config";
+import { handleAuthError, isAuthError } from "./authErrorHandler";
 
 // Use centralized config for API base URL
 const API_BASE = config.isDevelopment 
@@ -64,21 +65,23 @@ axiosInstance.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Response interceptor: handle 401 by clearing token and redirecting to /login
+// Response interceptor: handle 401/403 consistently
 axiosInstance.interceptors.response.use(
   (resp) => resp,
   (error) => {
     try {
       const status = error?.response?.status;
-      if (status === 401) {
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem("aiclipx_token");
-          // Force a client-side navigation to the login page
-          window.location.href = "/login";
-        }
+      
+      // Handle auth errors (401/403) consistently
+      if (status === 401 || status === 403) {
+        handleAuthError({
+          status: status as 401 | 403,
+          message: error?.response?.data?.message || "Authentication failed",
+          requestId: error?.config?.headers?.["X-Request-Id"]
+        });
       }
     } catch (e) {
-      // ignore
+      safeLog("Error in response interceptor", { hasError: !!e });
     }
     return Promise.reject(error);
   }

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import axios from "../lib/apiClient";
 import { useRouter } from "next/router";
+import { toastSuccess, toastWarning } from "../components/common/Toast";
 
 type User = {
   id?: string;
@@ -14,6 +15,8 @@ type AuthContextType = {
   login: (token: string) => Promise<void>;
   logout: () => void;
   refreshMe: () => Promise<void>;
+  isLoading: boolean;
+  isAuthenticated: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,44 +27,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  // Token presence check on app load
   useEffect(() => {
-    // hydrate token from localStorage
     if (typeof window !== "undefined") {
       const stored = window.localStorage.getItem("aiclipx_token");
       if (stored) {
         setToken(stored);
-        // attempt to fetch user with timeout
-        const timeoutId = setTimeout(() => {
-          // If fetchMe takes too long, just set loading to false and continue with token
-          console.warn("fetchMe timeout - continuing with stored token");
-          setLoading(false);
-        }, 3000); // 3 second timeout
-        
-        fetchMe(stored)
-          .catch((err) => {
-            // Only clear token on 401, otherwise keep it
-            const is401 = err?.response?.status === 401 || err?.message?.includes("401");
-            if (is401) {
-              console.log("401 error - clearing token");
-              setToken(null);
-              setUser(null);
-              window.localStorage.removeItem("aiclipx_token");
-            } else {
-              // Network error or other issue - keep token, user can still use app
-              console.warn("fetchMe failed but keeping token:", err?.message);
-            }
-          })
-          .finally(() => {
-            clearTimeout(timeoutId);
-            setLoading(false);
-          });
-      } else {
-        setLoading(false);
       }
+      setLoading(false);
     } else {
       setLoading(false);
     }
   }, []);
+
+  // Listen for token expiration events from API client
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleTokenExpired = (event: any) => {
+      const error = event.detail;
+      
+      // Clear all auth state
+      setToken(null);
+      setUser(null);
+      
+      // Don't show toast here - authErrorHandler already shows it
+      // Just ensure state is cleared
+    };
+
+    window.addEventListener('auth:token-expired', handleTokenExpired);
+    return () => window.removeEventListener('auth:token-expired', handleTokenExpired);
+  }, [router]);
 
   async function fetchMe(tkn?: string) {
     try {
@@ -88,24 +84,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.localStorage.setItem("aiclipx_token", tkn);
     }
     setToken(tkn);
+    
     try {
       await fetchMe(tkn);
+      toastSuccess("Đăng nhập thành công!");
+      
+      // Navigate to dashboard after successful login
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 500);
     } catch (err) {
-      // if fetching me fails, clear token
+      // If fetching user fails, clear token and show error
       logout();
       throw err;
     }
-    // navigate to dashboard after login
-    router.push("/dashboard");
   }
 
   function logout() {
+    // Clear all auth state
     if (typeof window !== "undefined") {
       window.localStorage.removeItem("aiclipx_token");
     }
     setToken(null);
     setUser(null);
-    router.push("/login");
+    
+    // Show success message
+    toastSuccess("Đã đăng xuất thành công");
+    
+    // Redirect to login
+    setTimeout(() => {
+      router.push("/login");
+    }, 800);
   }
 
   async function refreshMe() {
@@ -114,18 +123,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, refreshMe }}>
-      {/* {loading ? (
-        <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
-          <div className="text-white">Loading...</div>
-        </div>
-      ) : (
-       children
-      )}
-         */}
-      {
-        children
-      }
+    <AuthContext.Provider value={{ 
+      token, 
+      user, 
+      login, 
+      logout, 
+      refreshMe, 
+      isLoading: loading,
+      isAuthenticated: !!token 
+    }}>
+      {children}
     </AuthContext.Provider>
   );
 };
