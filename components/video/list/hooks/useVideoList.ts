@@ -2,15 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useVideoListContext } from "./VideoListContext";
 import { fetchVideosCursor } from "../../services/videoService";
 import { Video, VideoStatus } from "../../types/videoTypes";
-import { PollingManager, formatLastUpdated } from "../../../../lib/pollingManager";
+import { PollingManager } from "../../../../lib/pollingManager";
 
 /* =====================
    CONFIG
 ===================== */
 const LIMIT = 12;
 const SEARCH_DEBOUNCE_MS = 800;
-const MAX_ITEMS = 300;
-const MAX_REQUESTS = 10;
 const POLL_INTERVAL_MS = 4000; // 4 seconds - sensible interval
 const INITIAL_LOAD_TIMEOUT_MS = 30000; // 30 seconds
 const RETRY_INTERVAL_MS = 10000; // 10 seconds for background retry
@@ -18,19 +16,17 @@ const RETRY_INTERVAL_MS = 10000; // 10 seconds for background retry
 const CREATING_STATUSES: VideoStatus[] = ["queued", "processing"];
 
 export function useVideoList() {
-  const { status, sort, search } = useVideoListContext();
+  const { status, sort, search, currentPage, setCurrentPage } = useVideoListContext();
 
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(false);
   const [timeoutError, setTimeoutError] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
 
   const pagesCache = useRef<Map<number, Video[]>>(new Map());
   const pageCursors = useRef<Map<number, string | null>>(new Map());
 
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [isCapped, setIsCapped] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number>(0);
   
   // Track if this is initial load and if we're retrying in background
@@ -105,7 +101,8 @@ export function useVideoList() {
 
     isFetchingRef.current = true;
 
-    if (!silent) {
+    // Only show loading for non-silent requests and when we don't have data
+    if (!silent && (videos.length === 0 || force)) {
       setLoading(true);
     }
     setTimeoutError(false);
@@ -127,10 +124,11 @@ export function useVideoList() {
 
     // Use cache if available and not forcing
     if (!force && pagesCache.current.has(pageIndex)) {
-      setVideos(pagesCache.current.get(pageIndex)!);
+      const cachedVideos = pagesCache.current.get(pageIndex)!;
+      setVideos(cachedVideos);
       setCurrentPage(pageIndex);
       setHasNext(pageCursors.current.get(pageIndex) != null);
-      if (!silent) {
+      if (!silent && (videos.length === 0 || force)) {
         setLoading(false);
       }
       if (timeoutTimerRef.current) {
@@ -190,7 +188,7 @@ export function useVideoList() {
         }
       }
     } finally {
-      if (!silent) {
+      if (!silent && (videos.length === 0 || force)) {
         setLoading(false);
       }
       isFetchingRef.current = false;
@@ -201,7 +199,7 @@ export function useVideoList() {
      SMART POLLING with PollingManager
   ===================== */
   useEffect(() => {
-    // Don't poll during search
+    // Don't poll during search to avoid disrupting user experience
     if (debouncedSearch) {
       if (pollingManagerRef.current) {
         pollingManagerRef.current.stop();
@@ -218,9 +216,13 @@ export function useVideoList() {
       if (!pollingManagerRef.current) {
         pollingManagerRef.current = new PollingManager(
           async () => {
-            // Preserve current page state during polling
+            // Preserve current page state during polling - only refresh current page
             const pageToRefresh = currentPage;
+            
+            // Only clear the current page from cache, preserve others
             pagesCache.current.delete(pageToRefresh);
+            
+            // Fetch silently to avoid UI flicker
             await fetchPage(pageToRefresh, true, true);
           },
           {
@@ -254,25 +256,48 @@ export function useVideoList() {
      NAVIGATION
   ===================== */
   const goNext = () => {
-    if (!hasNext) return;
-    fetchPage(currentPage + 1);
+    if (!hasNext || loading) return;
+    setCurrentPage(currentPage + 1);
   };
 
   const goPrev = () => {
-    if (currentPage <= 1) return;
-    fetchPage(currentPage - 1);
+    if (currentPage <= 1 || loading) return;
+    setCurrentPage(currentPage - 1);
   };
 
   /* =====================
-     RESET ON STATUS / SORT / SEARCH
+     RESET ON STATUS / SORT / SEARCH (but preserve page when possible)
   ===================== */
   useEffect(() => {
+    // Clear cache when filters change
     pagesCache.current.clear();
     pageCursors.current.clear();
-    setCurrentPage(1);
-    setIsInitialLoad(true);
-    fetchPage(1, true);
-  }, [status, sort, debouncedSearch]);
+    
+    // Reset to page 1 when search/filter changes, but preserve page for sort-only changes
+    const shouldResetPage = debouncedSearch.trim() !== "" || status !== "All";
+    if (shouldResetPage && currentPage !== 1) {
+      setCurrentPage(1);
+    }
+    
+    // Don't set initial load for filter changes to prevent flicker
+    const pageToFetch = shouldResetPage ? 1 : currentPage;
+    fetchPage(pageToFetch, true, false); // Force but not silent to show proper loading
+  }, [status, debouncedSearch]); // Removed sort from dependencies to preserve page on sort change
+
+  // Handle sort changes separately to preserve current page
+  useEffect(() => {
+    // Only clear cache and refetch current page for sort changes
+    pagesCache.current.clear();
+    pageCursors.current.clear();
+    fetchPage(currentPage, true, false); // Force refresh but show loading state
+  }, [sort]);
+
+  // Fetch current page when page changes (but not on initial load)
+  useEffect(() => {
+    if (!isInitialLoad) {
+      fetchPage(currentPage, true);
+    }
+  }, [currentPage]);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -300,6 +325,7 @@ export function useVideoList() {
       pagesCache.current.clear();
       pageCursors.current.clear();
       setIsInitialLoad(false); // Manual refetch, don't show timeout
+      setCurrentPage(1);
       fetchPage(1, true);
     },
     manualRefresh: async () => {
@@ -307,7 +333,6 @@ export function useVideoList() {
       pagesCache.current.delete(currentPage);
       await fetchPage(currentPage, true, false);
     },
-    isCapped,
     prependVideo,
     removeVideo,
     lastUpdated,

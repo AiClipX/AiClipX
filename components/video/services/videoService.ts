@@ -112,9 +112,11 @@ export async function createVideoTask(payload: {
   prompt: string;
   engine: string;
   params?: any;
+}, options?: {
+  idempotencyKey?: string;
 }): Promise<Video> {
   const requestId = generateRequestId();
-  const idempotencyKey = `create_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const idempotencyKey = options?.idempotencyKey || `create_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
   try {
     const response = await axios.post('/api/video-tasks', payload, {
@@ -128,11 +130,14 @@ export async function createVideoTask(payload: {
   } catch (error: any) {
     safeLog("Create video error (no sensitive data)", { hasError: !!error, requestId });
     
-    // Re-throw with safe error message
-    const safeMessage = getSafeErrorMessage(error, requestId);
-    const err = new Error(safeMessage);
-    (err as any).requestId = requestId;
-    throw err;
+    // Attach additional error context for debugging
+    const enhancedError = new Error(getSafeErrorMessage(error, requestId));
+    (enhancedError as any).requestId = requestId;
+    (enhancedError as any).idempotencyKey = idempotencyKey;
+    (enhancedError as any).status = error?.response?.status;
+    (enhancedError as any).response = error?.response;
+    
+    throw enhancedError;
   }
 }
 

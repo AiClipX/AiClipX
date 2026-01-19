@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { StatusFilter } from "./components/StatusFilter";
 import { SortByDate } from "./components/SortByDate";
 import { VideoList } from "./components/VideoList";
@@ -27,9 +27,6 @@ export function VideoListContainer() {
     goPrev,
     currentPage,
     refetch,
-
-    // NEW from hook
-    isCapped,
     prependVideo,
     removeVideo,
   } = useVideoList();
@@ -37,15 +34,56 @@ export function VideoListContainer() {
   const { logout, user } = useAuth();
   const [openCreate, setOpenCreate] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isFilterTransitioning, setIsFilterTransitioning] = useState(false);
+  const [stableEmptyState, setStableEmptyState] = useState<'loading' | 'filters' | 'notasks' | 'hasdata'>('loading');
+
+  // Track current filter state
+  const hasFilters = status !== "All" || search.trim() !== "";
+
+  // Update stable empty state based on current conditions
+  useEffect(() => {
+    if (loading || isFilterTransitioning) {
+      setStableEmptyState('loading');
+    } else if (videos.length > 0) {
+      setStableEmptyState('hasdata');
+    } else if (hasFilters) {
+      setStableEmptyState('filters');
+    } else {
+      setStableEmptyState('notasks');
+    }
+
+    // Clear filter transition after state is stable
+    if (isFilterTransitioning && !loading) {
+      const timer = setTimeout(() => {
+        setIsFilterTransitioning(false);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, isFilterTransitioning, videos.length, hasFilters]);
 
   if (!initialized) return null;
 
   const handleRefresh = async () => {
     try {
-      await refetch(); // hook luôn load page 1
+      refetch(); // hook luôn load page 1
       setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // Handle filter changes with transition state
+  const handleStatusChange = (newStatus: typeof status) => {
+    if (newStatus !== status) {
+      setIsFilterTransitioning(true);
+      setStatus(newStatus);
+    }
+  };
+
+  const handleSearchChange = (newSearch: string) => {
+    if (newSearch !== search) {
+      setIsFilterTransitioning(true);
+      setSearch(newSearch);
     }
   };
 
@@ -72,7 +110,7 @@ export function VideoListContainer() {
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
-        <StatusFilter value={status} onChange={setStatus} />
+        <StatusFilter value={status} onChange={handleStatusChange} />
 
         <div className="flex items-center gap-2">
           <span>Search:</span>
@@ -80,7 +118,7 @@ export function VideoListContainer() {
             type="text"
             className="px-2 py-1 rounded text-black"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
           />
           <button
             onClick={handleRefresh}
@@ -149,38 +187,45 @@ export function VideoListContainer() {
         </div>
       )}
 
-      {/* Content */}
-      {loading && !timeoutError && <LoadingState />}
-      {!loading && videos.length === 0 && (
-        <EmptyState onCreateClick={() => setOpenCreate(true)} />
-      )}
+      {/* Content - Completely stable layout with no flicker */}
+      <div className="min-h-[400px]">
+        {stableEmptyState === 'loading' && !timeoutError && <LoadingState />}
+        
+        {stableEmptyState === 'filters' && (
+          <EmptyState onCreateClick={() => setOpenCreate(true)} showFiltersEmpty={true} />
+        )}
 
-      {!loading && videos.length > 0 && (
-        <>
-          <VideoList videos={videos} removeVideo={removeVideo} loading={loading} />
+        {stableEmptyState === 'notasks' && (
+          <EmptyState onCreateClick={() => setOpenCreate(true)} showFiltersEmpty={false} />
+        )}
 
-          {/* Pagination (disabled during search) */}
-          <div className="flex justify-center items-center mt-6 gap-4">
-            <button
-              onClick={goPrev}
-              disabled={!canPrev || loading}
-              className="px-3 py-1 bg-neutral-700 rounded disabled:opacity-40"
-            >
-              Prev
-            </button>
+        {stableEmptyState === 'hasdata' && (
+          <>
+            <VideoList videos={videos} removeVideo={removeVideo} loading={loading} />
 
-            <span className="text-white font-semibold">Page {currentPage}</span>
+            {/* Pagination */}
+            <div className="flex justify-center items-center mt-6 gap-4">
+              <button
+                onClick={goPrev}
+                disabled={!canPrev || loading}
+                className="px-3 py-1 bg-neutral-700 rounded disabled:opacity-40"
+              >
+                Prev
+              </button>
 
-            <button
-              onClick={goNext}
-              disabled={!canNext || loading}
-              className="px-3 py-1 bg-blue-600 rounded disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        </>
-      )}
+              <span className="text-white font-semibold">Page {currentPage}</span>
+
+              <button
+                onClick={goNext}
+                disabled={!canNext || loading}
+                className="px-3 py-1 bg-blue-600 rounded disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </div>
 
       <CreateVideoModal
         open={openCreate}

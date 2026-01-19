@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { VideoStatus } from "../../types/videoTypes";
-import { useRouter } from "next/router";
 
 interface VideoListContextType {
   status: "All" | VideoStatus;
@@ -12,6 +11,9 @@ interface VideoListContextType {
   search: string;
   setSearch: (v: string) => void;
 
+  currentPage: number;
+  setCurrentPage: (page: number) => void;
+
   initialized: boolean;
 }
 
@@ -22,32 +24,48 @@ const VideoListContext = createContext<VideoListContextType | undefined>(
 export const VideoListProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const router = useRouter();
   const [status, setStatus] = useState<"All" | VideoStatus>("All");
   const [sort, setSort] = useState<"newest" | "oldest">("newest");
   const [search, setSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
   const [initialized, setInitialized] = useState(false);
 
+  // Load state from sessionStorage on mount
   useEffect(() => {
-    const saved = sessionStorage.getItem("videoListState");
-    if (saved) {
+    if (typeof window !== "undefined") {
       try {
-        const state = JSON.parse(saved);
-        if (state.status) setStatus(state.status);
-        if (state.sort) setSort(state.sort);
-        if (typeof state.search === "string") setSearch(state.search);
-      } catch {}
+        const saved = sessionStorage.getItem("videoListState");
+        if (saved) {
+          const state = JSON.parse(saved);
+          if (state.status) setStatus(state.status);
+          if (state.sort) setSort(state.sort);
+          if (typeof state.search === "string") setSearch(state.search);
+          if (typeof state.currentPage === "number" && state.currentPage > 0) {
+            setCurrentPage(state.currentPage);
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to load video list state:", error);
+      }
     }
     setInitialized(true);
   }, []);
 
+  // Save state to sessionStorage when it changes
   useEffect(() => {
     if (!initialized) return;
-    sessionStorage.setItem(
-      "videoListState",
-      JSON.stringify({ status, sort, search })
-    );
-  }, [status, sort, search, initialized]);
+    
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem(
+          "videoListState",
+          JSON.stringify({ status, sort, search, currentPage })
+        );
+      } catch (error) {
+        console.warn("Failed to save video list state:", error);
+      }
+    }
+  }, [status, sort, search, currentPage, initialized]);
 
   return (
     <VideoListContext.Provider
@@ -58,6 +76,8 @@ export const VideoListProvider: React.FC<{ children: React.ReactNode }> = ({
         setSort,
         search,
         setSearch,
+        currentPage,
+        setCurrentPage,
         initialized,
       }}
     >

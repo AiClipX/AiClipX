@@ -6,16 +6,22 @@ export function useCreateVideo() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (payload: { 
-      title: string; 
-      prompt: string; 
-      engine: string; 
-      params?: any 
+    mutationFn: async (data: { 
+      payload: {
+        title: string; 
+        prompt: string; 
+        engine: string; 
+        params?: any;
+      };
+      idempotencyKey?: string;
     }) => {
       console.log("=== CREATE VIDEO REQUEST ===");
-      console.log("Payload:", payload);
+      console.log("Payload:", data.payload);
+      console.log("Idempotency Key:", data.idempotencyKey);
       
-      const video = await createVideoTask(payload);
+      const video = await createVideoTask(data.payload, {
+        idempotencyKey: data.idempotencyKey
+      });
       console.log("Response:", video);
       return video;
     },
