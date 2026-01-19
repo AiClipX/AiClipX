@@ -216,14 +216,43 @@ export function useVideoList() {
       if (!pollingManagerRef.current) {
         pollingManagerRef.current = new PollingManager(
           async () => {
-            // Preserve current page state during polling - only refresh current page
+            // When polling, we need to refresh with current filters
+            // This ensures that if a video changes status and no longer matches
+            // the current filter, it will be removed from the view immediately
+            
             const pageToRefresh = currentPage;
             
-            // Only clear the current page from cache, preserve others
+            // Clear cache to force fresh fetch with current filters
             pagesCache.current.delete(pageToRefresh);
             
-            // Fetch silently to avoid UI flicker
-            await fetchPage(pageToRefresh, true, true);
+            // Fetch with current filter settings - this will automatically
+            // exclude videos that no longer match the filter
+            try {
+              let cursor = pageToRefresh === 1 ? null : pageCursors.current.get(pageToRefresh - 1) ?? null;
+
+              const res = await fetchVideosCursor({
+                limit: LIMIT,
+                cursor: cursor ?? undefined,
+                sort: sort === "oldest" ? "createdAt_asc" : "createdAt_desc",
+                q: debouncedSearch || undefined,
+                status: status === "All" ? undefined : status,
+              });
+
+              const pageVideos = res.data.slice(0, LIMIT);
+              
+              // Update cache and state
+              pagesCache.current.set(pageToRefresh, pageVideos);
+              pageCursors.current.set(pageToRefresh, res.nextCursor ?? null);
+              
+              // Update videos state - this will automatically show empty state
+              // if no videos match the current filter
+              setVideos(pageVideos);
+              setHasNext(!!res.nextCursor);
+              setLastUpdated(Date.now());
+              
+            } catch (error) {
+              console.error('Polling fetch error:', error);
+            }
           },
           {
             interval: POLL_INTERVAL_MS,
@@ -250,7 +279,7 @@ export function useVideoList() {
         pollingManagerRef.current = null;
       }
     };
-  }, [videos, currentPage, debouncedSearch]);
+  }, [videos, currentPage, debouncedSearch, status, sort]);
 
   /* =====================
      NAVIGATION
