@@ -307,14 +307,14 @@ async def create_video_task(
     # BE-AUTH-001: Use user_client for RLS enforcement
     user_client = get_user_client(user.jwt_token)
 
-    # Check idempotency if key provided
+    # Check idempotency if key provided (BE-STG12-004: persistent via Supabase)
     if idempotency_key:
         payload = {
             "title": request_body.title,
             "prompt": request_body.prompt,
             "engine": request_body.engine.value,
         }
-        idemp_result = check_idempotency(idempotency_key, payload)
+        idemp_result = check_idempotency(user.id, idempotency_key, payload)
 
         # Payload mismatch → 409 Conflict
         if idemp_result.mismatch:
@@ -355,14 +355,14 @@ async def create_video_task(
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value} for user={user.id[:8]}...")
 
-    # Store idempotency key if provided
+    # Store idempotency key if provided (BE-STG12-004: persistent via Supabase)
     if idempotency_key:
         payload = {
             "title": request_body.title,
             "prompt": request_body.prompt,
             "engine": request_body.engine.value,
         }
-        store_idempotency(idempotency_key, payload, task.id)
+        store_idempotency(user.id, idempotency_key, payload, task.id)
 
     # Schedule background processing based on engine
     if request_body.engine == VideoEngine.mock:
