@@ -46,10 +46,16 @@ def _check_task_ownership(task_id: str, user_id: str, request_id: str):
     """
     service_client = get_service_client()
 
-    # Check if task exists (without user filter)
-    task_exists = video_task_service.get_task_by_id(service_client, task_id, user_id=None)
+    # Query task with user_id field (raw query to get owner info)
+    result = (
+        service_client.table("video_tasks")
+        .select("id, user_id")
+        .eq("id", task_id)
+        .limit(1)
+        .execute()
+    )
 
-    if not task_exists:
+    if not result.data:
         logger.info(f"[{request_id}] Task not found: {task_id}")
         return None, error_response(
             status_code=404,
@@ -59,10 +65,14 @@ def _check_task_ownership(task_id: str, user_id: str, request_id: str):
             details={"taskId": task_id},
         )
 
+    task_row = result.data[0]
+    task_owner_id = task_row.get("user_id")
+
     # Check ownership
-    if task_exists.userId != user_id:
+    if task_owner_id != user_id:
+        owner_masked = task_owner_id[:8] + "..." if task_owner_id else "unknown"
         logger.warning(
-            f"[{request_id}] FORBIDDEN: user={user_id[:8]}... attempted to access task={task_id} owned by {task_exists.userId[:8]}..."
+            f"[{request_id}] FORBIDDEN: user={user_id[:8]}... attempted to access task={task_id} owned by {owner_masked}"
         )
         return None, error_response(
             status_code=403,
@@ -72,7 +82,16 @@ def _check_task_ownership(task_id: str, user_id: str, request_id: str):
             details={"taskId": task_id},
         )
 
-    return task_exists, None
+    # Ownership verified - now get full task via user_client
+    user_client = get_user_client_from_service(user_id)
+    task = video_task_service.get_task_by_id(service_client, task_id, user_id=user_id)
+
+    return task, None
+
+
+def get_user_client_from_service(user_id: str):
+    """Helper to get service client (ownership already verified)."""
+    return get_service_client()
 
 
 @router.get(
