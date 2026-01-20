@@ -18,7 +18,7 @@ from models.video_task import (
     VideoEngine,
 )
 from services.auth import AuthUser, get_current_user
-from services.supabase_client import get_user_client
+from services.supabase_client import get_user_client, get_service_client
 from services.idempotency import check_idempotency, store_idempotency
 from services.video_task_service import (
     decode_cursor,
@@ -34,6 +34,45 @@ logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/video-tasks", tags=["Video Tasks"])
+
+
+def _check_task_ownership(task_id: str, user_id: str, request_id: str):
+    """
+    BE-STG12-007: Check task existence and ownership.
+    Returns (task, error_response) tuple.
+    - If task not found: (None, 404 response)
+    - If task not owned by user: (None, 403 response)
+    - If owned: (task, None)
+    """
+    service_client = get_service_client()
+
+    # Check if task exists (without user filter)
+    task_exists = video_task_service.get_task_by_id(service_client, task_id, user_id=None)
+
+    if not task_exists:
+        logger.info(f"[{request_id}] Task not found: {task_id}")
+        return None, error_response(
+            status_code=404,
+            code="NOT_FOUND",
+            message="Video task not found",
+            request_id=request_id,
+            details={"taskId": task_id},
+        )
+
+    # Check ownership
+    if task_exists.userId != user_id:
+        logger.warning(
+            f"[{request_id}] FORBIDDEN: user={user_id[:8]}... attempted to access task={task_id} owned by {task_exists.userId[:8]}..."
+        )
+        return None, error_response(
+            status_code=403,
+            code="FORBIDDEN",
+            message="You do not have permission to access this task",
+            request_id=request_id,
+            details={"taskId": task_id},
+        )
+
+    return task_exists, None
 
 
 @router.get(
@@ -391,6 +430,18 @@ async def create_video_task(
     response_model=VideoTask,
     responses={
         200: {"description": "Status updated successfully"},
+        403: {
+            "description": "Not authorized to update this task",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "FORBIDDEN",
+                        "message": "You do not have permission to access this task",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
         404: {
             "description": "Task not found",
             "content": {
@@ -448,27 +499,19 @@ async def update_task_status(
     - **processing**: videoUrl=null, errorMessage=null, progress 0-99
     - **completed**: progress=100, videoUrl required, errorMessage=null
     - **failed**: errorMessage required, videoUrl=null
+
+    Returns 404 if not found, 403 if not owned by current user.
     """
     request_id = getattr(request.state, "request_id", "unknown")
     logger.info(
-        f"[{request_id}] PATCH /api/video-tasks/{task_id}/status: "
-        f"status={request_body.status.value} progress={request_body.progress}"
+        f"[{request_id}] PATCH /api/video-tasks/{task_id}/status | "
+        f"user={user.id[:8]}... status={request_body.status.value}"
     )
 
-    # BE-AUTH-001: Use user_client for RLS enforcement + explicit user_id filter
-    user_client = get_user_client(user.jwt_token)
-
-    # Get current task (explicit user_id filter - returns None if not owned by user)
-    task = video_task_service.get_task_by_id(user_client, task_id, user_id=user.id)
-    if not task:
-        logger.warning(f"[{request_id}] Task not found: {task_id}")
-        return error_response(
-            status_code=404,
-            code="NOT_FOUND",
-            message="Video task not found",
-            request_id=request_id,
-            details={"taskId": task_id},
-        )
+    # BE-STG12-007: Check existence and ownership separately
+    task, err = _check_task_ownership(task_id, user.id, request_id)
+    if err:
+        return err
 
     # Validate state transition
     if not video_task_service.validate_transition(task.status, request_body.status):
@@ -523,7 +566,37 @@ async def update_task_status(
     return updated_task
 
 
-@router.get("/{task_id}", response_model=VideoTask)
+@router.get(
+    "/{task_id}",
+    response_model=VideoTask,
+    responses={
+        200: {"description": "Task details"},
+        403: {
+            "description": "Not authorized to access this task",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "FORBIDDEN",
+                        "message": "You do not have permission to access this task",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Task not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "NOT_FOUND",
+                        "message": "Video task not found",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+    },
+)
 async def get_video_task(
     task_id: str,
     request: Request,
@@ -539,25 +612,15 @@ async def get_video_task(
     - **progress**: 0-100 based on status
     - **debug**: Request tracing info
 
-    Returns 404 if task not found or not owned by current user.
+    Returns 404 if task not found, 403 if not owned by current user.
     """
     request_id = getattr(request.state, "request_id", "unknown")
-    logger.info(f"[{request_id}] Fetch video task {task_id}")
+    logger.info(f"[{request_id}] GET /api/video-tasks/{task_id} | user={user.id[:8]}...")
 
-    # BE-AUTH-001: Use user_client for RLS enforcement + explicit user_id filter
-    user_client = get_user_client(user.jwt_token)
-
-    task = video_task_service.get_task_by_id(user_client, task_id, user_id=user.id)
-
-    if not task:
-        logger.info(f"[{request_id}] Task not found: {task_id}")
-        return error_response(
-            status_code=404,
-            code="NOT_FOUND",
-            message="Video task not found",
-            request_id=request_id,
-            details={"taskId": task_id},
-        )
+    # BE-STG12-007: Check existence and ownership separately
+    task, err = _check_task_ownership(task_id, user.id, request_id)
+    if err:
+        return err
 
     # Inject debug info
     task.debug = DebugInfo(requestId=request_id)
@@ -572,7 +635,37 @@ async def get_video_task(
     return task
 
 
-@router.delete("/{task_id}", status_code=204)
+@router.delete(
+    "/{task_id}",
+    status_code=204,
+    responses={
+        204: {"description": "Task deleted successfully"},
+        403: {
+            "description": "Not authorized to delete this task",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "FORBIDDEN",
+                        "message": "You do not have permission to access this task",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Task not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "NOT_FOUND",
+                        "message": "Video task not found",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+    },
+)
 async def delete_video_task(
     task_id: str,
     request: Request,
@@ -583,28 +676,19 @@ async def delete_video_task(
 
     - **task_id**: Unique task identifier (e.g., vt_abc12345)
 
-    Returns 204 No Content on success, 404 if not found or not owned by user.
+    Returns 204 No Content on success, 404 if not found, 403 if not owned.
     """
     request_id = getattr(request.state, "request_id", "unknown")
-    logger.info(f"[{request_id}] DELETE video task {task_id}")
+    logger.info(f"[{request_id}] DELETE /api/video-tasks/{task_id} | user={user.id[:8]}...")
 
-    # BE-AUTH-001: Use user_client for RLS enforcement + explicit user_id filter
+    # BE-STG12-007: Check existence and ownership separately
+    task, err = _check_task_ownership(task_id, user.id, request_id)
+    if err:
+        return err
+
+    # Delete task using user_client for RLS
     user_client = get_user_client(user.jwt_token)
-
-    # Check if task exists (explicit user_id filter)
-    task = video_task_service.get_task_by_id(user_client, task_id, user_id=user.id)
-    if not task:
-        logger.info(f"[{request_id}] Task not found: {task_id}")
-        return error_response(
-            status_code=404,
-            code="NOT_FOUND",
-            message="Video task not found",
-            request_id=request_id,
-            details={"taskId": task_id},
-        )
-
-    # Delete task (explicit user_id filter)
     video_task_service.delete_task(user_client, task_id, user_id=user.id)
-    logger.info(f"[{request_id}] Deleted task {task_id}")
+    logger.info(f"[{request_id}] Deleted task {task_id} | user={user.id[:8]}...")
 
     return Response(status_code=204)
