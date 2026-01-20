@@ -138,7 +138,26 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# CORS Configuration (BE-PROD-GATE-001)
+# CORS Configuration (BE-PROD-GATE-001, BE-STG12-006)
+# Determine environment for CORS policy
+APP_ENV = os.getenv("APP_ENV", "").lower()
+API_BASE_URL = os.getenv("API_BASE_URL", "")
+LOCAL_DEV = os.getenv("LOCAL_DEV", "").lower() == "true"
+
+def get_environment() -> str:
+    """Determine current environment: local, staging, or production."""
+    if LOCAL_DEV or "localhost" in API_BASE_URL:
+        return "local"
+    if APP_ENV == "staging" or "staging" in API_BASE_URL or "iam2" in API_BASE_URL:
+        return "staging"
+    if APP_ENV == "production":
+        return "production"
+    # Default to staging for safety (more permissive than prod)
+    return "staging"
+
+ENVIRONMENT = get_environment()
+logger.info(f"Environment: {ENVIRONMENT}")
+
 # Production origins from env var, fallback to restrictive default
 CORS_ORIGINS_STR = os.getenv("CORS_ORIGINS", "").strip()
 CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(",") if origin.strip()] if CORS_ORIGINS_STR else [
@@ -147,17 +166,26 @@ CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS_STR.split(",") if orig
 ]
 
 # Add localhost for development if LOCAL_DEV=true or ALLOW_LOCALHOST_CORS=true
-if os.getenv("LOCAL_DEV", "").lower() == "true" or os.getenv("ALLOW_LOCALHOST_CORS", "").lower() == "true":
+if LOCAL_DEV or os.getenv("ALLOW_LOCALHOST_CORS", "").lower() == "true":
     CORS_ORIGINS.extend(["http://localhost:3000", "http://127.0.0.1:3000"])
 
 logger.info(f"CORS origins: {CORS_ORIGINS}")
+
+# BE-STG12-006: Vercel regex only in non-production environments
+# Production should only allow explicitly listed domains
+CORS_ORIGIN_REGEX = None
+if ENVIRONMENT != "production":
+    CORS_ORIGIN_REGEX = r"https://.*\.vercel\.app"
+    logger.info(f"CORS regex enabled (non-prod): {CORS_ORIGIN_REGEX}")
+else:
+    logger.info("CORS regex disabled (production - explicit origins only)")
 
 # Add middlewares (order matters - first added = outermost)
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel preview deployments
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-Id", "Accept", "Idempotency-Key"],

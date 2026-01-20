@@ -4,6 +4,8 @@ Debug endpoints for FE integration troubleshooting (BE-INTEG-001).
 
 These endpoints help diagnose CORS and auth issues quickly without
 requiring authentication.
+
+BE-STG12-006: Debug endpoints are blocked in production (return 404).
 """
 
 import logging
@@ -12,11 +14,45 @@ import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/debug", tags=["Debug"])
+
+
+def _get_environment() -> str:
+    """Determine current environment (mirrors main.py logic)."""
+    app_env = os.getenv("APP_ENV", "").lower()
+    api_base_url = os.getenv("API_BASE_URL", "")
+    local_dev = os.getenv("LOCAL_DEV", "").lower() == "true"
+
+    if local_dev or "localhost" in api_base_url:
+        return "local"
+    if app_env == "staging" or "staging" in api_base_url or "iam2" in api_base_url:
+        return "staging"
+    if app_env == "production":
+        return "production"
+    return "staging"
+
+
+def _block_in_production(request: Request) -> Optional[JSONResponse]:
+    """Return 404 response if in production environment."""
+    env = _get_environment()
+    if env == "production":
+        request_id = getattr(request.state, "request_id", "unknown")
+        logger.info(f"[{request_id}] GET /api/debug/* blocked (production)")
+        return JSONResponse(
+            status_code=404,
+            content={
+                "code": "NOT_FOUND",
+                "message": "Not found",
+                "requestId": request_id,
+            },
+            headers={"X-Request-Id": request_id},
+        )
+    return None
 
 
 class CORSDebugResponse(BaseModel):
@@ -112,6 +148,7 @@ fetch('https://api.example.com/api/debug/cors', {
 ```
 
 **Note:** Allowed origins are partially masked for security.
+**BE-STG12-006:** This endpoint returns 404 in production.
 """,
 )
 async def debug_cors(request: Request):
@@ -120,11 +157,19 @@ async def debug_cors(request: Request):
 
     Returns current CORS settings and whether the request Origin is allowed.
     Origins are masked for security (no full domain exposure).
+
+    BE-STG12-006: Returns 404 in production environment.
     """
+    # BE-STG12-006: Block in production
+    blocked = _block_in_production(request)
+    if blocked:
+        return blocked
+
     request_id = getattr(request.state, "request_id", "unknown")
     origin = request.headers.get("origin") or request.headers.get("Origin")
+    environment = _get_environment()
 
-    logger.info(f"[{request_id}] GET /api/debug/cors origin={origin}")
+    logger.info(f"[{request_id}] GET /api/debug/cors | env={environment} origin={origin}")
 
     # Get CORS config from environment (same as main.py)
     cors_origins_str = os.getenv("CORS_ORIGINS", "").strip()
@@ -138,7 +183,8 @@ async def debug_cors(request: Request):
         allowed_origins.extend(["http://localhost:3000", "http://127.0.0.1:3000"])
 
     # CORS settings (must match main.py CORSMiddleware config)
-    allow_regex = r"https://.*\.vercel\.app"
+    # BE-STG12-006: Vercel regex only in non-production
+    allow_regex = r"https://.*\.vercel\.app" if environment != "production" else None
     allowed_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     allowed_headers = ["Authorization", "Content-Type", "X-Request-Id", "Accept", "Idempotency-Key"]
     expose_headers = ["X-Request-Id"]
@@ -147,19 +193,15 @@ async def debug_cors(request: Request):
     # Check if origin is allowed
     is_allowed = check_origin_allowed(origin, allowed_origins, allow_regex) if origin else False
 
-    # Determine environment
-    api_base_url = os.getenv("API_BASE_URL", "")
-    if "localhost" in api_base_url or os.getenv("LOCAL_DEV", "").lower() == "true":
-        environment = "local"
-    elif "staging" in api_base_url or "iam2" in api_base_url:
-        environment = "staging"
-    else:
-        environment = "production"
+    # Log CORS decision
+    decision = "ALLOWED" if is_allowed else "BLOCKED"
+    logger.info(f"[{request_id}] CORS {decision} | env={environment} origin={origin}")
 
     # Mask origins for security
     masked_origins = [mask_origin(o) for o in allowed_origins]
-    # Add regex pattern indication
-    masked_origins.append("https://***.vercel.app (regex)")
+    # Add regex pattern indication (only in non-production)
+    if environment != "production":
+        masked_origins.append("https://***.vercel.app (regex)")
 
     return CORSDebugResponse(
         requestId=request_id,
