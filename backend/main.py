@@ -210,14 +210,24 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
     user_masked = user_id[:8] + "..." if user_id else "-"
     origin = request.headers.get("Origin", "-")
 
+    # BE-STG12-005: Semantic error codes for auth errors
+    code_map = {
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        429: "RATE_LIMITED",
+    }
+    error_code = code_map.get(exc.status_code, f"HTTP_{exc.status_code}")
+
     logger.warning(
-        f"[{request_id}] ERROR HTTP_{exc.status_code}: {exc.detail} | "
+        f"[{request_id}] ERROR {error_code}: {exc.detail} | "
         f"user={user_masked} origin={origin}"
     )
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "code": f"HTTP_{exc.status_code}",
+            "code": error_code,
             "message": str(exc.detail),
             "requestId": request_id,
             "details": {},

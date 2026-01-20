@@ -266,16 +266,24 @@ async def get_me(request: Request, user: AuthUser = Depends(get_current_user)):
     Get current authenticated user information.
 
     Requires valid JWT in Authorization header.
+    Returns user id and email.
+
+    BE-STG12-005: FE should redirect to login on 401.
     """
     request_id = getattr(request.state, "request_id", "unknown")
-    logger.info(f"[{request_id}] Get me: user_id={user.id[:8]}...")
+    logger.info(f"[{request_id}] GET /auth/me → 200 | user={user.id[:8]}...")
 
-    return {
-        "user": {
-            "id": user.id,
-            "email": user.email,
-        }
-    }
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=200,
+        content={
+            "user": {
+                "id": user.id,
+                "email": user.email,
+            }
+        },
+        headers={"X-Request-Id": request_id},
+    )
 
 
 @router.post(
@@ -341,6 +349,33 @@ async def refresh_token(request: Request, body: RefreshRequest):
         )
 
 
+async def _do_logout(request: Request, user: AuthUser):
+    """
+    Internal logout logic shared by /signout and /logout endpoints.
+
+    BE-STG12-005: FE should clear localStorage token after logout.
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] POST /auth/logout | user={user.id[:8]}...")
+
+    try:
+        client = get_service_client()
+        # Sign out using Supabase Auth (invalidates session server-side)
+        client.auth.sign_out()
+        logger.info(f"[{request_id}] POST /auth/logout → 200 | user={user.id[:8]}...")
+    except Exception as e:
+        # Even if signout fails on Supabase side, return success
+        # (client should still clear local tokens)
+        logger.warning(f"[{request_id}] Logout warning: {e} | user={user.id[:8]}...")
+
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=200,
+        content={"message": "Signed out successfully"},
+        headers={"X-Request-Id": request_id},
+    )
+
+
 @router.post(
     "/signout",
     responses={
@@ -355,23 +390,21 @@ async def signout(request: Request, user: AuthUser = Depends(get_current_user)):
     Requires valid JWT in Authorization header.
     After signout, the refresh token will no longer work.
     """
-    request_id = getattr(request.state, "request_id", "unknown")
-    logger.info(f"[{request_id}] Signout: user_id={user.id[:8]}...")
+    return await _do_logout(request, user)
 
-    try:
-        client = get_service_client()
 
-        # Sign out using Supabase Auth (invalidates session server-side)
-        client.auth.sign_out()
+@router.post(
+    "/logout",
+    responses={
+        200: {"description": "Logged out successfully"},
+        401: {"description": "Not authenticated", "model": ErrorResponse},
+    },
+)
+async def logout(request: Request, user: AuthUser = Depends(get_current_user)):
+    """
+    Alias for /signout - Log out and invalidate the current session.
 
-        logger.info(f"[{request_id}] Signout successful: user_id={user.id[:8]}...")
-
-        return {"message": "Signed out successfully"}
-
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"[{request_id}] Signout error: {error_msg}")
-
-        # Even if signout fails on Supabase side, return success
-        # (client should still clear local tokens)
-        return {"message": "Signed out successfully"}
+    Requires valid JWT in Authorization header.
+    BE-STG12-005: FE should clear localStorage token after this call.
+    """
+    return await _do_logout(request, user)
