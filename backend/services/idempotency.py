@@ -71,9 +71,8 @@ def check_idempotency(user_id: str, key: str, payload: dict) -> IdempotencyResul
             .execute()
         )
 
-        # Debug: log query params and raw result
-        logger.info(f"[IDEMP] CHECK user={user_id[:8]}... key={key[:8]}... cutoff={cutoff.isoformat()}")
-        logger.info(f"[IDEMP] Query result: {result.data}")
+        # Debug logging
+        logger.info(f"[IDEMP] CHECK user={user_id[:8]}... key={key[:8]}...")
 
         if not result.data:
             logger.info(f"[IDEMP] MISS user={user_id[:8]}... key={key[:8]}...")
@@ -127,12 +126,10 @@ def store_idempotency(user_id: str, key: str, payload: dict, task_id: str) -> bo
             "task_id": task_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        logger.info(f"[IDEMP] STORING: {upsert_data}")
         result = client.table("idempotency_keys").upsert(
             upsert_data,
             on_conflict="user_id,idempotency_key",
         ).execute()
-        logger.info(f"[IDEMP] Store result: {result.data}")
 
         logger.info(
             f"[IDEMP] STORED user={user_id[:8]}... key={key[:8]}... → task={task_id} (TTL={IDEMPOTENCY_TTL_HOURS}h)"
