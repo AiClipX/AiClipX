@@ -71,6 +71,10 @@ def check_idempotency(user_id: str, key: str, payload: dict) -> IdempotencyResul
             .execute()
         )
 
+        # Debug: log query params and raw result
+        logger.info(f"[IDEMP] CHECK user={user_id[:8]}... key={key[:8]}... cutoff={cutoff.isoformat()}")
+        logger.info(f"[IDEMP] Query result: {result.data}")
+
         if not result.data:
             logger.info(f"[IDEMP] MISS user={user_id[:8]}... key={key[:8]}...")
             return IdempotencyResult(hit=False, mismatch=False)
@@ -90,8 +94,10 @@ def check_idempotency(user_id: str, key: str, payload: dict) -> IdempotencyResul
             return IdempotencyResult(hit=False, mismatch=True)
 
     except Exception as e:
-        # On DB error, log and treat as cache miss (fail-open)
+        # On DB error, log FULL error and treat as cache miss (fail-open)
+        import traceback
         logger.error(f"[IDEMP] DB error during check: {e}")
+        logger.error(f"[IDEMP] Traceback: {traceback.format_exc()}")
         return IdempotencyResult(hit=False, mismatch=False)
 
 
@@ -114,16 +120,19 @@ def store_idempotency(user_id: str, key: str, payload: dict, task_id: str) -> bo
         payload_hash = _hash_payload(payload)
 
         # Upsert: insert or update if exists
-        client.table("idempotency_keys").upsert(
-            {
-                "user_id": user_id,
-                "idempotency_key": key,
-                "payload_hash": payload_hash,
-                "task_id": task_id,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
+        upsert_data = {
+            "user_id": user_id,
+            "idempotency_key": key,
+            "payload_hash": payload_hash,
+            "task_id": task_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        logger.info(f"[IDEMP] STORING: {upsert_data}")
+        result = client.table("idempotency_keys").upsert(
+            upsert_data,
             on_conflict="user_id,idempotency_key",
         ).execute()
+        logger.info(f"[IDEMP] Store result: {result.data}")
 
         logger.info(
             f"[IDEMP] STORED user={user_id[:8]}... key={key[:8]}... → task={task_id} (TTL={IDEMPOTENCY_TTL_HOURS}h)"
@@ -131,7 +140,9 @@ def store_idempotency(user_id: str, key: str, payload: dict, task_id: str) -> bo
         return True
 
     except Exception as e:
+        import traceback
         logger.error(f"[IDEMP] DB error during store: {e}")
+        logger.error(f"[IDEMP] Store traceback: {traceback.format_exc()}")
         return False
 
 
