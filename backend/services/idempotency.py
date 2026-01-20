@@ -1,37 +1,27 @@
 """
-Idempotency cache for preventing duplicate task creation.
-Simple in-memory implementation with TTL.
+BE-STG12-004: Persistent Idempotency using Supabase/PostgreSQL.
+Survives server restarts and works across multiple instances.
+TTL: 24 hours (configurable via IDEMPOTENCY_TTL_HOURS env var)
 """
 import hashlib
+import json
 import logging
-import time
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+from services.supabase_client import get_service_client
 
 logger = logging.getLogger(__name__)
 
-# TTL for idempotency keys (60 minutes)
-IDEMPOTENCY_TTL_SECONDS = 60 * 60
-
-# In-memory cache: {idempotency_key: {"task_id": str, "payload_hash": str, "expires": float}}
-_idempotency_cache: dict = {}
+# TTL for idempotency keys (default 24 hours)
+IDEMPOTENCY_TTL_HOURS = int(os.getenv("IDEMPOTENCY_TTL_HOURS", "24"))
 
 
 def _hash_payload(payload: dict) -> str:
     """Create a hash of the request payload for comparison."""
-    # Sort keys for consistent hashing
-    import json
     payload_str = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(payload_str.encode()).hexdigest()[:16]
-
-
-def _cleanup_expired():
-    """Remove expired entries from cache."""
-    now = time.time()
-    expired_keys = [k for k, v in _idempotency_cache.items() if v["expires"] < now]
-    for key in expired_keys:
-        del _idempotency_cache[key]
-    if expired_keys:
-        logger.info(f"[IDEMP] Cleaned up {len(expired_keys)} expired keys")
 
 
 class IdempotencyResult:
@@ -48,49 +38,142 @@ class IdempotencyResult:
         self.mismatch = mismatch
 
 
-def check_idempotency(key: str, payload: dict) -> IdempotencyResult:
+def check_idempotency(user_id: str, key: str, payload: dict) -> IdempotencyResult:
     """
     Check if an idempotency key exists and matches payload.
+    Uses Supabase for persistent storage across restarts.
 
     Args:
+        user_id: User ID (for scoping keys per user)
         key: Idempotency-Key header value
         payload: Request body as dict
 
     Returns:
         IdempotencyResult with:
-        - hit=True, task_id=X if cache hit and payload matches
+        - hit=True, task_id=X if found and payload matches
         - hit=False, mismatch=True if key exists but payload differs
-        - hit=False, mismatch=False if key not found (new key)
+        - hit=False, mismatch=False if key not found or expired
     """
-    _cleanup_expired()
+    try:
+        client = get_service_client()
 
-    if key not in _idempotency_cache:
-        logger.info(f"[IDEMP] Cache miss for key: {key[:8]}...")
+        # Calculate TTL cutoff
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=IDEMPOTENCY_TTL_HOURS)
+
+        # Query for existing key (within TTL)
+        result = (
+            client.table("idempotency_keys")
+            .select("payload_hash, task_id, created_at")
+            .eq("user_id", user_id)
+            .eq("idempotency_key", key)
+            .gte("created_at", cutoff.isoformat())
+            .limit(1)
+            .execute()
+        )
+
+        # Debug logging
+        logger.info(f"[IDEMP] CHECK user={user_id[:8]}... key={key[:8]}...")
+
+        if not result.data:
+            logger.info(f"[IDEMP] MISS user={user_id[:8]}... key={key[:8]}...")
+            return IdempotencyResult(hit=False, mismatch=False)
+
+        cached = result.data[0]
+        payload_hash = _hash_payload(payload)
+
+        if cached["payload_hash"] == payload_hash:
+            logger.info(
+                f"[IDEMP] HIT user={user_id[:8]}... key={key[:8]}... → task={cached['task_id']}"
+            )
+            return IdempotencyResult(hit=True, task_id=cached["task_id"])
+        else:
+            logger.warning(
+                f"[IDEMP] CONFLICT user={user_id[:8]}... key={key[:8]}... payload mismatch"
+            )
+            return IdempotencyResult(hit=False, mismatch=True)
+
+    except Exception as e:
+        # On DB error, log FULL error and treat as cache miss (fail-open)
+        import traceback
+        logger.error(f"[IDEMP] DB error during check: {e}")
+        logger.error(f"[IDEMP] Traceback: {traceback.format_exc()}")
         return IdempotencyResult(hit=False, mismatch=False)
 
-    cached = _idempotency_cache[key]
-    payload_hash = _hash_payload(payload)
 
-    if cached["payload_hash"] == payload_hash:
-        logger.info(f"[IDEMP] Cache HIT for key: {key[:8]}... → task_id: {cached['task_id']}")
-        return IdempotencyResult(hit=True, task_id=cached["task_id"])
-    else:
-        logger.warning(f"[IDEMP] CONFLICT: Key {key[:8]}... exists but payload mismatch - rejecting request")
-        return IdempotencyResult(hit=False, mismatch=True)
-
-
-def store_idempotency(key: str, payload: dict, task_id: str):
+def store_idempotency(user_id: str, key: str, payload: dict, task_id: str) -> bool:
     """
     Store idempotency key with task_id and payload hash.
+    Uses insert with duplicate handling.
 
     Args:
+        user_id: User ID
         key: Idempotency-Key header value
         payload: Request body as dict
         task_id: Created task ID
+
+    Returns:
+        True if stored successfully, False on error
     """
-    _idempotency_cache[key] = {
-        "task_id": task_id,
-        "payload_hash": _hash_payload(payload),
-        "expires": time.time() + IDEMPOTENCY_TTL_SECONDS,
-    }
-    logger.info(f"[IDEMP] Stored key: {key[:8]}... → task_id: {task_id} (TTL: 60min)")
+    logger.info(f"[IDEMP] STORE START user={user_id[:8]}... key={key[:8]}... task={task_id}")
+
+    try:
+        client = get_service_client()
+        payload_hash = _hash_payload(payload)
+
+        insert_data = {
+            "user_id": user_id,
+            "idempotency_key": key,
+            "payload_hash": payload_hash,
+            "task_id": task_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        logger.info(f"[IDEMP] Inserting: {insert_data}")
+
+        # Try insert first
+        result = client.table("idempotency_keys").insert(insert_data).execute()
+
+        logger.info(
+            f"[IDEMP] STORED user={user_id[:8]}... key={key[:8]}... → task={task_id} (TTL={IDEMPOTENCY_TTL_HOURS}h)"
+        )
+        return True
+
+    except Exception as e:
+        error_str = str(e)
+        # Handle duplicate key - this is OK, means key already stored
+        if "duplicate" in error_str.lower() or "unique" in error_str.lower() or "23505" in error_str:
+            logger.info(f"[IDEMP] Key already exists (duplicate) - OK")
+            return True
+
+        import traceback
+        logger.error(f"[IDEMP] DB error during store: {e}")
+        logger.error(f"[IDEMP] Store traceback: {traceback.format_exc()}")
+        return False
+
+
+def cleanup_expired_keys() -> int:
+    """
+    Delete expired idempotency keys.
+    Can be called via cron job or admin endpoint.
+
+    Returns:
+        Number of deleted keys
+    """
+    try:
+        client = get_service_client()
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=IDEMPOTENCY_TTL_HOURS)
+
+        result = (
+            client.table("idempotency_keys")
+            .delete()
+            .lt("created_at", cutoff.isoformat())
+            .execute()
+        )
+
+        deleted = len(result.data) if result.data else 0
+        logger.info(f"[IDEMP] Cleanup: deleted {deleted} expired keys")
+        return deleted
+
+    except Exception as e:
+        logger.error(f"[IDEMP] Cleanup error: {e}")
+        return 0

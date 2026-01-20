@@ -1,6 +1,9 @@
 """
-Video Task Service - Database-backed persistence layer.
-All operations read/write from PostgreSQL database.
+Video Task Service - Database-backed persistence layer (BE-AUTH-001).
+
+Uses Supabase client for all database operations:
+- User-facing endpoints: user_client with JWT (RLS enforced via auth.uid())
+- Background jobs: service_client (bypasses RLS)
 """
 import asyncio
 import base64
@@ -13,8 +16,9 @@ from uuid import uuid4
 import httpx
 import json
 
-from database import database
+from supabase import Client
 from models.video_task import VideoTask, VideoTaskStatus, VideoTaskParams
+from services.supabase_client import get_service_client
 from services.runway import (
     create_image_to_video_task,
     get_task_status,
@@ -29,6 +33,41 @@ from services.supabase_storage import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def safe_parse_datetime(dt_str: str) -> datetime:
+    """
+    Safely parse ISO format datetime strings with various timezone formats.
+
+    Handles:
+    - '2024-01-01T12:00:00Z' (Z suffix)
+    - '2024-01-01T12:00:00+00:00' (timezone offset)
+    - '2024-01-01T12:00:00.123456+00:00' (microseconds)
+    - '2024-01-01T12:00:00.1234567+00:00' (extra precision - Supabase)
+    """
+    if not dt_str:
+        return datetime.now(timezone.utc)
+
+    try:
+        # Replace 'Z' with '+00:00' for Python compatibility
+        dt_str = dt_str.replace("Z", "+00:00")
+
+        # Handle Supabase timestamps with >6 decimal places
+        import re
+        match = re.match(r"(.+\.\d{1,6})(\d*)([+-]\d{2}:\d{2})$", dt_str)
+        if match:
+            base, extra, tz = match.groups()
+            # Truncate to 6 decimal places (microseconds)
+            decimal_part = base.split(".")[-1]
+            if len(decimal_part) < 6:
+                base = base[:-len(decimal_part)] + decimal_part.ljust(6, "0")
+            dt_str = base + tz
+
+        return datetime.fromisoformat(dt_str)
+    except (ValueError, AttributeError) as e:
+        logger.warning(f"Failed to parse datetime '{dt_str}': {e}, using current time")
+        return datetime.now(timezone.utc)
+
 
 # State machine: allowed transitions
 ALLOWED_TRANSITIONS = {
@@ -68,7 +107,7 @@ def decode_cursor(cursor: str) -> Optional[Tuple[datetime, str, Optional[str], O
             return None
 
         if len(parts) == 5:
-            created_at = datetime.fromisoformat(parts[0])
+            created_at = safe_parse_datetime(parts[0])
             task_id = parts[1]
             q = parts[2] if parts[2] else None
             status = parts[3] if parts[3] else None
@@ -90,10 +129,17 @@ DEMO_VIDEOS = [
 
 
 class VideoTaskService:
-    """Service layer for video task CRUD operations using PostgreSQL."""
+    """
+    Service layer for video task CRUD operations using Supabase client (BE-AUTH-001).
 
-    async def get_tasks(
+    User-facing methods accept a Supabase client (user_client) for RLS enforcement.
+    Background job methods use service_client internally.
+    """
+
+    def get_tasks(
         self,
+        client: Client,
+        user_id: str,
         limit: int = 20,
         cursor_time: Optional[datetime] = None,
         cursor_id: Optional[str] = None,
@@ -102,9 +148,11 @@ class VideoTaskService:
         sort: str = "createdAt_desc",
     ) -> Tuple[List[VideoTask], Optional[str]]:
         """
-        Get paginated list of video tasks from database.
+        Get paginated list of video tasks from database (RLS + explicit user_id filter).
 
         Args:
+            client: Supabase client (user_client for RLS)
+            user_id: User ID from JWT (explicit filter, defense-in-depth)
             limit: Number of tasks to return (1-100)
             cursor_time: Decoded cursor timestamp
             cursor_id: Decoded cursor task ID
@@ -115,10 +163,6 @@ class VideoTaskService:
         Returns:
             Tuple of (tasks list, next cursor or None)
         """
-        # Build dynamic query
-        conditions = []
-        params = {"limit": limit}
-
         # Normalize q: trim whitespace, treat empty as None
         if q:
             q = q.strip()
@@ -127,85 +171,103 @@ class VideoTaskService:
 
         # Determine sort order
         is_desc = sort == "createdAt_desc"
-        order_clause = "created_at DESC, id DESC" if is_desc else "created_at ASC, id ASC"
-        cursor_op = "<" if is_desc else ">"
 
-        # Cursor condition (composite key for stable pagination)
+        # Build query with Supabase client
+        query = client.table("video_tasks").select(
+            "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
+            "source_image_url, engine, params, progress, user_id, "
+            "processing_at, completed_at, failed_at"
+        )
+
+        # BE-AUTH-001: Explicit user_id filter (defense-in-depth, not relying solely on RLS)
+        query = query.eq("user_id", user_id)
+
+        # Apply cursor pagination
         if cursor_time and cursor_id:
-            conditions.append(f"(created_at, id) {cursor_op} (:cursor_time, :cursor_id)")
-            params["cursor_time"] = cursor_time
-            params["cursor_id"] = cursor_id
+            if is_desc:
+                # For descending: get items before cursor
+                query = query.or_(
+                    f"created_at.lt.{cursor_time.isoformat()},"
+                    f"and(created_at.eq.{cursor_time.isoformat()},id.lt.{cursor_id})"
+                )
+            else:
+                # For ascending: get items after cursor
+                query = query.or_(
+                    f"created_at.gt.{cursor_time.isoformat()},"
+                    f"and(created_at.eq.{cursor_time.isoformat()},id.gt.{cursor_id})"
+                )
 
         # Status filter
         if status:
-            conditions.append("status = :status")
-            params["status"] = status
+            query = query.eq("status", status)
 
         # Search: title (ILIKE) OR id (exact match)
+        # Escape LIKE wildcards to prevent injection
         if q:
-            conditions.append("(title ILIKE :q_like OR id = :q_exact)")
-            params["q_like"] = f"%{q}%"
-            params["q_exact"] = q
+            # Escape special LIKE characters: % _ \
+            escaped_q = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = query.or_(f"title.ilike.%{escaped_q}%,id.eq.{q}")
 
-        # Build WHERE clause
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        # Apply sort order
+        if is_desc:
+            query = query.order("created_at", desc=True).order("id", desc=True)
+        else:
+            query = query.order("created_at", desc=False).order("id", desc=False)
 
-        # Execute query
-        query = f"""
-            SELECT id, title, prompt, status, created_at, updated_at, video_url, error_message,
-                   source_image_url, engine, params, progress
-            FROM video_tasks
-            WHERE {where_clause}
-            ORDER BY {order_clause}
-            LIMIT :limit
-        """
-        rows = await database.fetch_all(query, params)
-        tasks = [self._row_to_task(row) for row in rows]
+        # Execute with limit + 1 to check if more exist (avoids N+1 query)
+        response = query.limit(limit + 1).execute()
+        all_tasks = [self._row_to_task(row) for row in response.data]
+
+        # Determine if there are more results
+        has_more = len(all_tasks) > limit
+        tasks = all_tasks[:limit]  # Return only requested limit
 
         # Calculate next cursor
         next_cursor = None
-        if tasks and len(tasks) == limit:
+        if has_more and tasks:
             last_task = tasks[-1]
-            # Check if there are more tasks with same filters
-            check_params = {"created_at": last_task.createdAt, "id": last_task.id}
-            check_conditions = [f"(created_at, id) {cursor_op} (:created_at, :id)"]
-
-            if status:
-                check_conditions.append("status = :status")
-                check_params["status"] = status
-            if q:
-                check_conditions.append("(title ILIKE :q_like OR id = :q_exact)")
-                check_params["q_like"] = f"%{q}%"
-                check_params["q_exact"] = q
-
-            check_where = " AND ".join(check_conditions)
-            check_query = f"SELECT 1 FROM video_tasks WHERE {check_where} LIMIT 1"
-            has_more = await database.fetch_one(check_query, check_params)
-
-            if has_more:
-                next_cursor = encode_cursor(
-                    last_task.createdAt, last_task.id,
-                    q=q, status=status, sort=sort
-                )
+            next_cursor = encode_cursor(
+                last_task.createdAt, last_task.id,
+                q=q, status=status, sort=sort
+            )
 
         return tasks, next_cursor
 
-    async def get_task_by_id(self, task_id: str) -> Optional[VideoTask]:
-        """Get a single video task by ID from database."""
-        query = """
-            SELECT id, title, prompt, status, created_at, updated_at, video_url, error_message,
-                   source_image_url, engine, params, progress
-            FROM video_tasks
-            WHERE id = :id
+    def get_task_by_id(
+        self, client: Client, task_id: str, user_id: Optional[str] = None
+    ) -> Optional[VideoTask]:
         """
-        row = await database.fetch_one(query, {"id": task_id})
+        Get a single video task by ID from database (RLS + explicit user_id filter).
 
-        if row:
-            return self._row_to_task(row)
+        Args:
+            client: Supabase client (user_client for RLS, or service_client for background jobs)
+            task_id: Task ID to fetch
+            user_id: User ID for explicit filtering (required for user-facing endpoints)
+                     Pass None only for background jobs using service_client
+
+        Returns:
+            VideoTask or None if not found (or not owned by user)
+        """
+        query = client.table("video_tasks").select(
+            "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
+            "source_image_url, engine, params, progress, user_id, "
+            "processing_at, completed_at, failed_at"
+        ).eq("id", task_id)
+
+        # BE-AUTH-001: Explicit user_id filter (defense-in-depth)
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+
+        response = query.execute()
+
+        if response.data:
+            return self._row_to_task(response.data[0])
         return None
 
-    async def create_task(
+    def create_task(
         self,
+        client: Client,
+        user_id: str,
         title: str,
         prompt: str,
         source_image_url: Optional[str] = None,
@@ -213,9 +275,11 @@ class VideoTaskService:
         params: Optional[dict] = None,
     ) -> VideoTask:
         """
-        Create a new video task with queued status (BE-STG8).
+        Create a new video task with queued status (BE-AUTH-001).
 
         Args:
+            client: Supabase client (user_client for RLS)
+            user_id: User ID from JWT (required for RLS)
             title: Task title (required)
             prompt: Task prompt for generation (required)
             source_image_url: Optional source image URL
@@ -228,29 +292,27 @@ class VideoTaskService:
         task_id = f"vt_{uuid4().hex[:8]}"
         now = datetime.now(timezone.utc)
 
-        # Serialize params to JSON
-        params_json = json.dumps(params) if params else None
-
-        query = """
-            INSERT INTO video_tasks (id, title, prompt, status, created_at, updated_at,
-                                      source_image_url, engine, params, progress)
-            VALUES (:id, :title, :prompt, :status, :created_at, :updated_at,
-                    :source_image_url, :engine, :params, :progress)
-        """
-        await database.execute(query, {
+        # Insert into database
+        data = {
             "id": task_id,
+            "user_id": user_id,
             "title": title,
             "prompt": prompt,
             "status": VideoTaskStatus.queued.value,
-            "created_at": now,
-            "updated_at": now,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
             "source_image_url": source_image_url,
             "engine": engine,
-            "params": params_json,
+            "params": params,
             "progress": 0,
-        })
+        }
 
-        logger.info(f"[DB] Inserted task {task_id} with status=queued, engine={engine}")
+        response = client.table("video_tasks").insert(data).execute()
+
+        if not response.data:
+            raise Exception(f"Failed to create task: {response}")
+
+        logger.info(f"[DB] Inserted task {task_id} with status=queued, engine={engine}, user_id={user_id[:8]}...")
 
         # Parse params back to model
         params_model = VideoTaskParams(**params) if params else None
@@ -283,10 +345,25 @@ class VideoTaskService:
         error_message: Optional[str],
     ) -> Optional[str]:
         """
-        Validate field constraints for each status.
+        Validate field constraints for each status (BE-ENGINE-002: strict state machine).
+
+        Rules:
+        - queued: progress=0, no videoUrl, no errorMessage
+        - processing: progress 1-99, no videoUrl, no errorMessage
+        - completed: progress=100, videoUrl required, no errorMessage
+        - failed: errorMessage required, no videoUrl, progress kept at failure point
+
         Returns error message if invalid, None if valid.
         """
-        if status == VideoTaskStatus.processing:
+        if status == VideoTaskStatus.queued:
+            if progress is not None and progress != 0:
+                return "progress must be 0 for queued status"
+            if video_url is not None:
+                return "videoUrl must be null for queued status"
+            if error_message is not None:
+                return "errorMessage must be null for queued status"
+
+        elif status == VideoTaskStatus.processing:
             if video_url is not None:
                 return "videoUrl must be null for processing status"
             if error_message is not None:
@@ -307,66 +384,104 @@ class VideoTaskService:
                 return "errorMessage is required for failed status"
             if video_url is not None:
                 return "videoUrl must be null for failed status"
+            # progress: no constraint - keep at failure point for observability
 
         return None
 
-    async def update_task_status(
+    def update_task_status(
         self,
         task_id: str,
         status: VideoTaskStatus,
         progress: Optional[int] = None,
         video_url: Optional[str] = None,
         error_message: Optional[str] = None,
+        request_id: str = "unknown",
     ) -> Optional[VideoTask]:
-        """Update task status and related fields in database."""
+        """
+        Update task status and related fields in database.
+        BE-STG12-009: Set transition timestamps and log latency.
+
+        Uses service_client (bypasses RLS) for background job updates.
+        """
         now = datetime.now(timezone.utc)
+        service_client = get_service_client()
 
-        query = """
-            UPDATE video_tasks
-            SET status = :status,
-                updated_at = :updated_at,
-                progress = COALESCE(:progress, progress),
-                video_url = :video_url,
-                error_message = :error_message
-            WHERE id = :id
-        """
-        await database.execute(query, {
-            "id": task_id,
+        # Fetch current task for latency calculation
+        current_task = self.get_task_by_id(service_client, task_id)
+        old_status = current_task.status if current_task else VideoTaskStatus.queued
+
+        # Build update data
+        update_data = {
             "status": status.value,
-            "updated_at": now,
-            "progress": progress,
-            "video_url": video_url,
-            "error_message": error_message,
-        })
+            "updated_at": now.isoformat(),
+        }
 
-        logger.info(f"[DB] Updated task {task_id} status={status.value} progress={progress}")
+        if progress is not None:
+            update_data["progress"] = progress
+        if video_url is not None:
+            update_data["video_url"] = video_url
+        if error_message is not None:
+            update_data["error_message"] = error_message
 
-        return await self.get_task_by_id(task_id)
+        # BE-STG12-009: Set transition timestamps (once only)
+        if status == VideoTaskStatus.processing:
+            update_data["processing_at"] = now.isoformat()
+        elif status == VideoTaskStatus.completed:
+            update_data["completed_at"] = now.isoformat()
+        elif status == VideoTaskStatus.failed:
+            update_data["failed_at"] = now.isoformat()
 
-    async def delete_task(self, task_id: str) -> bool:
+        response = service_client.table("video_tasks").update(update_data).eq("id", task_id).execute()
+
+        # BE-STG12-009: Calculate and log latency
+        latency_ms = 0
+        if current_task:
+            if status == VideoTaskStatus.processing and current_task.createdAt:
+                # Queue time: createdAt → processing
+                latency_ms = int((now - current_task.createdAt).total_seconds() * 1000)
+            elif status in [VideoTaskStatus.completed, VideoTaskStatus.failed] and current_task.processingAt:
+                # Processing time: processingAt → completed/failed
+                latency_ms = int((now - current_task.processingAt).total_seconds() * 1000)
+
+        logger.info(
+            f"[{request_id}] STATUS_CHANGE task={task_id} "
+            f"{old_status.value}→{status.value} latency={latency_ms}ms"
+        )
+
+        # Fetch updated task
+        return self.get_task_by_id(service_client, task_id)
+
+    def delete_task(self, client: Client, task_id: str, user_id: str) -> bool:
         """
-        Delete a video task by ID (hard delete).
+        Delete a video task by ID (hard delete, RLS + explicit user_id filter).
 
         Args:
+            client: Supabase client (user_client for RLS)
             task_id: Task ID to delete
+            user_id: User ID for explicit filtering (defense-in-depth)
 
         Returns:
-            True if task was deleted, False if not found
+            True if task was deleted, False if not found (or not owned by user)
         """
-        query = "DELETE FROM video_tasks WHERE id = :id"
-        result = await database.execute(query, {"id": task_id})
+        # Check if task exists first (explicit user_id filter)
+        existing = self.get_task_by_id(client, task_id, user_id=user_id)
+        if not existing:
+            return False
 
-        if result:
+        # BE-AUTH-001: Explicit user_id filter on delete (defense-in-depth)
+        response = client.table("video_tasks").delete().eq("id", task_id).eq("user_id", user_id).execute()
+
+        if response.data:
             logger.info(f"[DB] Deleted task {task_id}")
             return True
         return False
 
-    def _row_to_task(self, row) -> VideoTask:
-        """Convert database row to VideoTask model."""
+    def _row_to_task(self, row: dict) -> VideoTask:
+        """Convert database row (dict) to VideoTask model."""
         status = VideoTaskStatus(row["status"])
 
         # Parse params from JSON (handle both dict and None)
-        params_data = row["params"]
+        params_data = row.get("params")
         params_model = None
         if params_data:
             if isinstance(params_data, str):
@@ -375,7 +490,7 @@ class VideoTaskService:
                 params_model = VideoTaskParams(**params_data)
 
         # Get progress from DB or default based on status
-        progress = row["progress"]
+        progress = row.get("progress")
         if progress is None:
             if status == VideoTaskStatus.completed:
                 progress = 100
@@ -384,54 +499,82 @@ class VideoTaskService:
             else:
                 progress = 0
 
+        # Handle datetime parsing from string (Supabase returns ISO strings)
+        created_at = row.get("created_at")
+        updated_at = row.get("updated_at")
+        processing_at = row.get("processing_at")
+        completed_at = row.get("completed_at")
+        failed_at = row.get("failed_at")
+
+        if isinstance(created_at, str):
+            created_at = safe_parse_datetime(created_at)
+        if isinstance(updated_at, str):
+            updated_at = safe_parse_datetime(updated_at)
+        if isinstance(processing_at, str):
+            processing_at = safe_parse_datetime(processing_at)
+        if isinstance(completed_at, str):
+            completed_at = safe_parse_datetime(completed_at)
+        if isinstance(failed_at, str):
+            failed_at = safe_parse_datetime(failed_at)
+
         return VideoTask(
             id=row["id"],
-            title=row["title"],
-            prompt=row["prompt"],
+            title=row.get("title"),
+            prompt=row.get("prompt"),
             status=status,
-            createdAt=row["created_at"],
-            updatedAt=row["updated_at"],
-            videoUrl=row["video_url"],
-            errorMessage=row["error_message"],
+            createdAt=created_at,
+            updatedAt=updated_at,
+            videoUrl=row.get("video_url"),
+            errorMessage=row.get("error_message"),
             progress=progress,
-            sourceImageUrl=row["source_image_url"],
-            engine=row["engine"],
+            sourceImageUrl=row.get("source_image_url"),
+            engine=row.get("engine"),
             params=params_model,
+            # BE-STG12-009: Status transition timestamps
+            processingAt=processing_at,
+            completedAt=completed_at,
+            failedAt=failed_at,
         )
 
 
-async def simulate_task_processing(task_id: str, service: VideoTaskService):
+async def simulate_task_processing(task_id: str, service: VideoTaskService, request_id: str = "bg_mock"):
     """
     Background function to simulate task status transitions (for engine=mock only).
     queued -> processing (after 5s) -> completed (after 15s)
-    All transitions are persisted to database.
+    All transitions are persisted to database via service_client (bypasses RLS).
     """
     try:
         # Wait 5s then transition to processing
         await asyncio.sleep(5)
-        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=10)
-        logger.info(f"[BG] Task {task_id} transitioned to processing")
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=10, request_id=request_id)
 
         # Wait 15s then transition to completed
         await asyncio.sleep(15)
         video_url = random.choice(DEMO_VIDEOS)
-        await service.update_task_status(
+        service.update_task_status(
             task_id,
             VideoTaskStatus.completed,
             progress=100,
             video_url=video_url,
+            request_id=request_id,
         )
-        logger.info(f"[BG] Task {task_id} transitioned to completed with videoUrl")
     except Exception as e:
-        logger.error(f"[BG] Error processing task {task_id}: {e}")
+        logger.error(f"[{request_id}] Error processing task {task_id}: {e}")
         try:
-            await service.update_task_status(
+            # Sanitize error message - don't expose internal details
+            error_msg = "Video processing failed. Please try again."
+            if "timeout" in str(e).lower():
+                error_msg = "Processing timed out. Please try again."
+            elif "network" in str(e).lower() or "connection" in str(e).lower():
+                error_msg = "Network error during processing. Please try again."
+            service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
-                error_message=f"Processing error: {str(e)}",
+                error_message=error_msg,
+                request_id=request_id,
             )
         except Exception as update_err:
-            logger.error(f"[BG] Failed to update task {task_id} to failed: {update_err}")
+            logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
 
 # Runway polling configuration
@@ -448,6 +591,7 @@ async def process_runway_task(
 ):
     """
     Background function to process Runway image-to-video task.
+    Uses service_client (bypasses RLS) for status updates.
 
     Flow:
     1. queued -> processing (immediately)
@@ -463,8 +607,7 @@ async def process_runway_task(
 
     try:
         # Step 1: Transition to processing
-        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=0)
-        logger.info(f"[{request_id}] Task {task_id} transitioned to processing")
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=0, request_id=request_id)
 
         # Step 2: Create Runway task
         logger.info(f"[{request_id}] Creating Runway task for {task_id}")
@@ -476,7 +619,7 @@ async def process_runway_task(
         logger.info(f"[{request_id}] Runway task created: {runway_task_id}")
 
         # Update progress to 10% after task creation
-        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=10)
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=10, request_id=request_id)
 
         # Step 3: Poll Runway for completion
         elapsed_time = 0
@@ -494,7 +637,7 @@ async def process_runway_task(
 
             # Update progress (map Runway progress 0-100 to our progress 10-90)
             progress = 10 + int(runway_result.progress * 0.8)  # 10 + 80% of runway progress
-            await service.update_task_status(task_id, VideoTaskStatus.processing, progress=progress)
+            service.update_task_status(task_id, VideoTaskStatus.processing, progress=progress, request_id=request_id)
 
             if runway_result.status == RunwayTaskStatus.SUCCEEDED:
                 output_url = runway_result.output_url
@@ -512,10 +655,10 @@ async def process_runway_task(
 
         # Step 4: Download video from Runway
         logger.info(f"[{request_id}] Downloading video from Runway: {output_url[:50]}...")
-        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=92)
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=92, request_id=request_id)
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            download_response = await client.get(output_url)
+        async with httpx.AsyncClient(timeout=120.0) as http_client:
+            download_response = await http_client.get(output_url)
             if download_response.status_code != 200:
                 raise RunwayAPIError(
                     f"Failed to download video: HTTP {download_response.status_code}"
@@ -523,7 +666,7 @@ async def process_runway_task(
             video_bytes = download_response.content
 
         logger.info(f"[{request_id}] Downloaded video: {len(video_bytes)} bytes")
-        await service.update_task_status(task_id, VideoTaskStatus.processing, progress=95)
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=95, request_id=request_id)
 
         # Step 5: Upload to Supabase Storage
         logger.info(f"[{request_id}] Uploading video to Supabase...")
@@ -536,46 +679,53 @@ async def process_runway_task(
         logger.info(f"[{request_id}] Video uploaded to Supabase: {upload_result.path}")
 
         # Step 6: Transition to completed
-        await service.update_task_status(
+        service.update_task_status(
             task_id,
             VideoTaskStatus.completed,
             progress=100,
             video_url=supabase_url,
+            request_id=request_id,
         )
         logger.info(f"[{request_id}] Task {task_id} completed with videoUrl: {supabase_url[:50]}...")
 
     except (RunwayAPIError, RunwayConfigError) as e:
-        error_msg = f"Runway error: {str(e)}"
-        logger.error(f"[{request_id}] {error_msg}")
+        logger.error(f"[{request_id}] Runway error for task {task_id}: {e}")
+        # Sanitize: don't expose internal API details
+        error_msg = "Video generation service error. Please try again later."
         try:
-            await service.update_task_status(
+            service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
+                request_id=request_id,
             )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
     except (SupabaseUploadError, SupabaseConfigError) as e:
-        error_msg = f"Storage error: {str(e)}"
-        logger.error(f"[{request_id}] {error_msg}")
+        logger.error(f"[{request_id}] Storage error for task {task_id}: {e}")
+        # Sanitize: don't expose storage details
+        error_msg = "Failed to save video. Please try again later."
         try:
-            await service.update_task_status(
+            service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
+                request_id=request_id,
             )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
     except Exception as e:
-        error_msg = f"Processing error: {str(e)}"
         logger.error(f"[{request_id}] Unexpected error in Runway processing: {e}")
+        # Sanitize: generic error message for unexpected errors
+        error_msg = "Video processing failed. Please try again."
         try:
-            await service.update_task_status(
+            service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
+                request_id=request_id,
             )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")

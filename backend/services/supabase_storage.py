@@ -8,7 +8,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from supabase import create_client, Client
+from supabase import Client
+
+from services.supabase_client import get_service_client, SupabaseClientError
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +39,10 @@ class UploadResult:
     expires_in: Optional[int] = None
 
 
-_client: Optional[Client] = None
-
-
 def get_supabase_client() -> Client:
     """
-    Get or create Supabase client singleton.
+    Get Supabase client for storage operations.
+    Uses the shared service_role client from supabase_client module.
 
     Returns:
         Client: Supabase client
@@ -50,25 +50,10 @@ def get_supabase_client() -> Client:
     Raises:
         SupabaseConfigError: If Supabase is not properly configured
     """
-    global _client
-
-    if _client is not None:
-        return _client
-
-    url = os.getenv("SUPABASE_URL", "").strip()
-    key = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
-
-    if not url:
-        raise SupabaseConfigError("SUPABASE_URL is not configured")
-    if not key:
-        raise SupabaseConfigError("SUPABASE_SERVICE_KEY is not configured")
-
-    # Ensure URL has trailing slash to avoid Supabase warning
-    if not url.endswith("/"):
-        url = url + "/"
-
-    _client = create_client(url, key)
-    return _client
+    try:
+        return get_service_client()
+    except SupabaseClientError as e:
+        raise SupabaseConfigError(str(e))
 
 
 def get_outputs_bucket() -> str:

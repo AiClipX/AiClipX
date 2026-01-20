@@ -1,0 +1,70 @@
+{
+  "version": "1",
+  "entries": [
+    {
+      "idx": 0,
+      "name": "0000_initial_schema",
+      "applied_at": "2026-01-07T17:02:34.845830+00:00"
+    },
+    {
+      "idx": 1,
+      "name": "0001_add_video_tasks_indexes",
+      "applied_at": "2026-01-07T17:02:35.115595+00:00"
+    },
+    {
+      "idx": 2,
+      "name": "0002_add_prompt_column",
+      "applied_at": "2026-01-07T17:02:35.368608+00:00"
+    },
+    {
+      "idx": 3,
+      "name": "0003_add_stg8_columns",
+      "applied_at": "2026-01-07T17:02:35.640123+00:00"
+    },
+    {
+      "idx": 4,
+      "name": "0004_rename_pending_to_queued",
+      "applied_at": "2026-01-07T17:02:35.893989+00:00"
+    },
+    {
+      "idx": 5,
+      "name": "0005_create_tts_requests",
+      "applied_at": "2026-01-07T17:02:36.168178+00:00"
+    },
+    {
+      "idx": 6,
+      "name": "0006_add_tts_indexes",
+      "applied_at": "2026-01-07T17:02:36.419671+00:00"
+    },
+    {
+      "idx": 7,
+      "name": "0007_add_user_id_columns",
+      "applied_at": "2026-01-07T17:02:36.688485+00:00"
+    },
+    {
+      "idx": 8,
+      "name": "0008_cleanup_orphan_records",
+      "applied_at": "2026-01-07T17:02:36.939768+00:00"
+    },
+    {
+      "idx": 9,
+      "name": "0009_user_id_not_null",
+      "applied_at": "2026-01-07T17:02:37.214320+00:00"
+    },
+    {
+      "idx": 10,
+      "name": "0010_add_user_id_indexes",
+      "applied_at": "2026-01-07T17:02:37.465717+00:00"
+    },
+    {
+      "idx": 11,
+      "name": "0011_enable_rls",
+      "applied_at": "2026-01-07T17:02:37.736701+00:00"
+    },
+    {
+      "idx": 12,
+      "name": "0012_add_rls_policies",
+      "applied_at": "2026-01-07T17:02:37.990587+00:00"
+    }
+  ]
+}

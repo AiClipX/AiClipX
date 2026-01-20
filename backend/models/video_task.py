@@ -49,6 +49,11 @@ class VideoTask(BaseModel):
     engine: Optional[str] = None
     params: Optional[VideoTaskParams] = None
 
+    # BE-STG12-009: Status transition timestamps
+    processingAt: Optional[datetime] = None  # Set once when entering 'processing'
+    completedAt: Optional[datetime] = None   # Set once when entering 'completed'
+    failedAt: Optional[datetime] = None      # Set once when entering 'failed'
+
     # Optional diagnostic fields
     debug: Optional[DebugInfo] = None
 
