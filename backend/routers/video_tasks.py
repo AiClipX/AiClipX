@@ -424,7 +424,7 @@ async def create_video_task(
 
     # Schedule background processing based on engine
     if request_body.engine == VideoEngine.mock:
-        asyncio.create_task(simulate_task_processing(task.id, video_task_service))
+        asyncio.create_task(simulate_task_processing(task.id, video_task_service, request_id))
         logger.info(f"[{request_id}] Scheduled background processing for task {task.id} (engine=mock)")
     elif request_body.engine == VideoEngine.runway:
         asyncio.create_task(

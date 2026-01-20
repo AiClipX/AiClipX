@@ -393,14 +393,20 @@ class VideoTaskService:
         progress: Optional[int] = None,
         video_url: Optional[str] = None,
         error_message: Optional[str] = None,
+        request_id: str = "unknown",
     ) -> Optional[VideoTask]:
         """
         Update task status and related fields in database.
+        BE-STG12-009: Set transition timestamps and log latency.
 
         Uses service_client (bypasses RLS) for background job updates.
         """
         now = datetime.now(timezone.utc)
         service_client = get_service_client()
+
+        # Fetch current task for latency calculation
+        current_task = self.get_task_by_id(service_client, task_id)
+        old_status = current_task.status if current_task else VideoTaskStatus.queued
 
         # Build update data
         update_data = {
@@ -415,9 +421,30 @@ class VideoTaskService:
         if error_message is not None:
             update_data["error_message"] = error_message
 
+        # BE-STG12-009: Set transition timestamps (once only)
+        if status == VideoTaskStatus.processing:
+            update_data["processing_at"] = now.isoformat()
+        elif status == VideoTaskStatus.completed:
+            update_data["completed_at"] = now.isoformat()
+        elif status == VideoTaskStatus.failed:
+            update_data["failed_at"] = now.isoformat()
+
         response = service_client.table("video_tasks").update(update_data).eq("id", task_id).execute()
 
-        logger.info(f"[DB] Updated task {task_id} status={status.value} progress={progress}")
+        # BE-STG12-009: Calculate and log latency
+        latency_ms = 0
+        if current_task:
+            if status == VideoTaskStatus.processing and current_task.createdAt:
+                # Queue time: createdAt → processing
+                latency_ms = int((now - current_task.createdAt).total_seconds() * 1000)
+            elif status in [VideoTaskStatus.completed, VideoTaskStatus.failed] and current_task.processingAt:
+                # Processing time: processingAt → completed/failed
+                latency_ms = int((now - current_task.processingAt).total_seconds() * 1000)
+
+        logger.info(
+            f"[{request_id}] STATUS_CHANGE task={task_id} "
+            f"{old_status.value}→{status.value} latency={latency_ms}ms"
+        )
 
         # Fetch updated task
         return self.get_task_by_id(service_client, task_id)
@@ -473,10 +500,20 @@ class VideoTaskService:
         # Handle datetime parsing from string (Supabase returns ISO strings)
         created_at = row.get("created_at")
         updated_at = row.get("updated_at")
+        processing_at = row.get("processing_at")
+        completed_at = row.get("completed_at")
+        failed_at = row.get("failed_at")
+
         if isinstance(created_at, str):
             created_at = safe_parse_datetime(created_at)
         if isinstance(updated_at, str):
             updated_at = safe_parse_datetime(updated_at)
+        if isinstance(processing_at, str):
+            processing_at = safe_parse_datetime(processing_at)
+        if isinstance(completed_at, str):
+            completed_at = safe_parse_datetime(completed_at)
+        if isinstance(failed_at, str):
+            failed_at = safe_parse_datetime(failed_at)
 
         return VideoTask(
             id=row["id"],
@@ -491,10 +528,14 @@ class VideoTaskService:
             sourceImageUrl=row.get("source_image_url"),
             engine=row.get("engine"),
             params=params_model,
+            # BE-STG12-009: Status transition timestamps
+            processingAt=processing_at,
+            completedAt=completed_at,
+            failedAt=failed_at,
         )
 
 
-async def simulate_task_processing(task_id: str, service: VideoTaskService):
+async def simulate_task_processing(task_id: str, service: VideoTaskService, request_id: str = "bg_mock"):
     """
     Background function to simulate task status transitions (for engine=mock only).
     queued -> processing (after 5s) -> completed (after 15s)
@@ -503,8 +544,7 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService):
     try:
         # Wait 5s then transition to processing
         await asyncio.sleep(5)
-        service.update_task_status(task_id, VideoTaskStatus.processing, progress=10)
-        logger.info(f"[BG] Task {task_id} transitioned to processing")
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=10, request_id=request_id)
 
         # Wait 15s then transition to completed
         await asyncio.sleep(15)
@@ -514,10 +554,10 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService):
             VideoTaskStatus.completed,
             progress=100,
             video_url=video_url,
+            request_id=request_id,
         )
-        logger.info(f"[BG] Task {task_id} transitioned to completed with videoUrl")
     except Exception as e:
-        logger.error(f"[BG] Error processing task {task_id}: {e}")
+        logger.error(f"[{request_id}] Error processing task {task_id}: {e}")
         try:
             # Sanitize error message - don't expose internal details
             error_msg = "Video processing failed. Please try again."
@@ -529,9 +569,10 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService):
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
+                request_id=request_id,
             )
         except Exception as update_err:
-            logger.error(f"[BG] Failed to update task {task_id} to failed: {update_err}")
+            logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
 
 # Runway polling configuration
@@ -564,8 +605,7 @@ async def process_runway_task(
 
     try:
         # Step 1: Transition to processing
-        service.update_task_status(task_id, VideoTaskStatus.processing, progress=0)
-        logger.info(f"[{request_id}] Task {task_id} transitioned to processing")
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=0, request_id=request_id)
 
         # Step 2: Create Runway task
         logger.info(f"[{request_id}] Creating Runway task for {task_id}")
@@ -577,7 +617,7 @@ async def process_runway_task(
         logger.info(f"[{request_id}] Runway task created: {runway_task_id}")
 
         # Update progress to 10% after task creation
-        service.update_task_status(task_id, VideoTaskStatus.processing, progress=10)
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=10, request_id=request_id)
 
         # Step 3: Poll Runway for completion
         elapsed_time = 0
@@ -595,7 +635,7 @@ async def process_runway_task(
 
             # Update progress (map Runway progress 0-100 to our progress 10-90)
             progress = 10 + int(runway_result.progress * 0.8)  # 10 + 80% of runway progress
-            service.update_task_status(task_id, VideoTaskStatus.processing, progress=progress)
+            service.update_task_status(task_id, VideoTaskStatus.processing, progress=progress, request_id=request_id)
 
             if runway_result.status == RunwayTaskStatus.SUCCEEDED:
                 output_url = runway_result.output_url
@@ -613,7 +653,7 @@ async def process_runway_task(
 
         # Step 4: Download video from Runway
         logger.info(f"[{request_id}] Downloading video from Runway: {output_url[:50]}...")
-        service.update_task_status(task_id, VideoTaskStatus.processing, progress=92)
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=92, request_id=request_id)
 
         async with httpx.AsyncClient(timeout=120.0) as http_client:
             download_response = await http_client.get(output_url)
@@ -624,7 +664,7 @@ async def process_runway_task(
             video_bytes = download_response.content
 
         logger.info(f"[{request_id}] Downloaded video: {len(video_bytes)} bytes")
-        service.update_task_status(task_id, VideoTaskStatus.processing, progress=95)
+        service.update_task_status(task_id, VideoTaskStatus.processing, progress=95, request_id=request_id)
 
         # Step 5: Upload to Supabase Storage
         logger.info(f"[{request_id}] Uploading video to Supabase...")
@@ -642,6 +682,7 @@ async def process_runway_task(
             VideoTaskStatus.completed,
             progress=100,
             video_url=supabase_url,
+            request_id=request_id,
         )
         logger.info(f"[{request_id}] Task {task_id} completed with videoUrl: {supabase_url[:50]}...")
 
@@ -654,6 +695,7 @@ async def process_runway_task(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
+                request_id=request_id,
             )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
@@ -667,6 +709,7 @@ async def process_runway_task(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
+                request_id=request_id,
             )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
@@ -680,6 +723,7 @@ async def process_runway_task(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
+                request_id=request_id,
             )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
