@@ -103,7 +103,7 @@ def check_idempotency(user_id: str, key: str, payload: dict) -> IdempotencyResul
 def store_idempotency(user_id: str, key: str, payload: dict, task_id: str) -> bool:
     """
     Store idempotency key with task_id and payload hash.
-    Uses upsert to handle race conditions.
+    Uses insert with duplicate handling.
 
     Args:
         user_id: User ID
@@ -114,22 +114,24 @@ def store_idempotency(user_id: str, key: str, payload: dict, task_id: str) -> bo
     Returns:
         True if stored successfully, False on error
     """
+    logger.info(f"[IDEMP] STORE START user={user_id[:8]}... key={key[:8]}... task={task_id}")
+
     try:
         client = get_service_client()
         payload_hash = _hash_payload(payload)
 
-        # Upsert: insert or update if exists
-        upsert_data = {
+        insert_data = {
             "user_id": user_id,
             "idempotency_key": key,
             "payload_hash": payload_hash,
             "task_id": task_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        result = client.table("idempotency_keys").upsert(
-            upsert_data,
-            on_conflict="user_id,idempotency_key",
-        ).execute()
+
+        logger.info(f"[IDEMP] Inserting: {insert_data}")
+
+        # Try insert first
+        result = client.table("idempotency_keys").insert(insert_data).execute()
 
         logger.info(
             f"[IDEMP] STORED user={user_id[:8]}... key={key[:8]}... → task={task_id} (TTL={IDEMPOTENCY_TTL_HOURS}h)"
@@ -137,6 +139,12 @@ def store_idempotency(user_id: str, key: str, payload: dict, task_id: str) -> bo
         return True
 
     except Exception as e:
+        error_str = str(e)
+        # Handle duplicate key - this is OK, means key already stored
+        if "duplicate" in error_str.lower() or "unique" in error_str.lower() or "23505" in error_str:
+            logger.info(f"[IDEMP] Key already exists (duplicate) - OK")
+            return True
+
         import traceback
         logger.error(f"[IDEMP] DB error during store: {e}")
         logger.error(f"[IDEMP] Store traceback: {traceback.format_exc()}")
