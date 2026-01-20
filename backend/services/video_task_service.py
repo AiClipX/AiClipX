@@ -175,7 +175,8 @@ class VideoTaskService:
         # Build query with Supabase client
         query = client.table("video_tasks").select(
             "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
-            "source_image_url, engine, params, progress, user_id"
+            "source_image_url, engine, params, progress, user_id, "
+            "processing_at, completed_at, failed_at"
         )
 
         # BE-AUTH-001: Explicit user_id filter (defense-in-depth, not relying solely on RLS)
@@ -249,7 +250,8 @@ class VideoTaskService:
         """
         query = client.table("video_tasks").select(
             "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
-            "source_image_url, engine, params, progress, user_id"
+            "source_image_url, engine, params, progress, user_id, "
+            "processing_at, completed_at, failed_at"
         ).eq("id", task_id)
 
         # BE-AUTH-001: Explicit user_id filter (defense-in-depth)
