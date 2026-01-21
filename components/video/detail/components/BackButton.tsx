@@ -4,7 +4,7 @@ export function BackButton() {
   const router = useRouter();
 
   const handleBack = () => {
-    router.push("/dashboard/test-video-list"); // back to video list
+    router.push("/dashboard"); // back to video list
   };
 
   return (

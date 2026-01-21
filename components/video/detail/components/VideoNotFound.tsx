@@ -5,7 +5,7 @@ export function VideoNotFound() {
     <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center text-white">
       <p className="mb-4">Video not found</p>
       <Link
-        href="/dashboard/test-video-list"
+        href="/dashboard"
         className="text-blue-400 hover:underline"
       >
         Back to list

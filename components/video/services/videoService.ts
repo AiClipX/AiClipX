@@ -82,10 +82,13 @@ export async function fetchVideosCursor(params: {
   sort: "createdAt_desc" | "createdAt_asc";
   q?: string;
   status?: string;
+  signal?: AbortSignal; // Add AbortSignal support
 }): Promise<{ data: Video[]; nextCursor?: string }> {
   const queryParams = new URLSearchParams(buildCursorParams(params) as any);
   
-  const response = await axios.get(`/api/video-tasks?${queryParams}`);
+  const response = await axios.get(`/api/video-tasks?${queryParams}`, {
+    signal: params.signal, // Pass AbortSignal to axios
+  });
   
   return {
     data: response.data.data.map(parseVideo),

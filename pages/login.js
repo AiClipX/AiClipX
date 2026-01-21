@@ -41,7 +41,7 @@ export default function LoginPage() {
 
       localStorage.setItem("aiclipx_token", token);
       await auth.login(token);
-      router.push('/dashboard/test-video-list');
+      // AuthContext will handle redirect to /dashboard
     } catch (err) {
       console.error("Login error:", err);
       setError(err.message || "Login failed");

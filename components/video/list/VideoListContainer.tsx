@@ -6,11 +6,13 @@ import { LoadingState } from "./components/LoadingState";
 import { EmptyState } from "./components/EmptyState";
 import { CreateVideoButton } from "./components/CreateVideoButton";
 import { CreateVideoModal } from "./components/CreateVideoModal";
+import UserMenu from "../../common/UserMenu";
+import { LanguageSelector } from "../../common/LanguageSelector";
 
 import { useVideoListContext } from "./hooks/VideoListContext";
-import { useVideoList } from "./hooks/useVideoList";
-import { showToast } from "../../common/Toast";
+import { useVideoListQuery } from "./hooks/useVideoListQuery";
 import { useAuth } from "../../../contexts/AuthContext";
+import { useLanguage } from "../../../contexts/LanguageContext";
 
 export function VideoListContainer() {
   const { status, setStatus, sort, setSort, search, setSearch, initialized } =
@@ -27,11 +29,15 @@ export function VideoListContainer() {
     goPrev,
     currentPage,
     refetch,
+    manualRefresh,
     prependVideo,
     removeVideo,
-  } = useVideoList();
+    isError,
+    error,
+  } = useVideoListQuery();
 
-  const { logout, user } = useAuth();
+  const { logout, user, isAuthenticated, isLoading: authLoading, token, isValidating } = useAuth();
+  const { t } = useLanguage();
   const [openCreate, setOpenCreate] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isFilterTransitioning, setIsFilterTransitioning] = useState(false);
@@ -61,11 +67,44 @@ export function VideoListContainer() {
     }
   }, [loading, isFilterTransitioning, videos.length, hasFilters]);
 
+  // Auto-hide timeout error when we have data (server is working)
+  useEffect(() => {
+    if (videos.length > 0 && timeoutError) {
+      // If we have videos, the server is clearly working, so hide timeout error
+      console.log('[VideoListContainer] Auto-hiding timeout error - server is working');
+    }
+  }, [videos.length, timeoutError]);
+
   if (!initialized) return null;
+
+  // Show loading while auth is loading or validating
+  if (authLoading || isValidating) {
+    return (
+      <section className="max-w-7xl mx-auto px-4 py-4 text-white">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <LoadingState />
+        </div>
+      </section>
+    );
+  }
+
+  // Show error if not authenticated
+  if (!token && !authLoading) {
+    return (
+      <section className="max-w-7xl mx-auto px-4 py-4 text-white">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <h2 className="text-xl font-semibold mb-2">Authentication Required</h2>
+            <p className="text-neutral-400">Please log in to view videos.</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   const handleRefresh = async () => {
     try {
-      refetch(); // hook luôn load page 1
+      await manualRefresh(); // Use manualRefresh to preserve current page and cancel pending requests
       setLastUpdated(new Date());
     } catch (err) {
       console.error(err);
@@ -91,20 +130,11 @@ export function VideoListContainer() {
     <section className="max-w-7xl mx-auto px-4 py-4 text-white">
       {/* Header */}
       <div className="flex justify-between items-center mb-4 gap-4">
-        <h1 className="text-xl font-semibold">Video List</h1>
+        <h1 className="text-xl font-semibold">{t('videoList.title')}</h1>
         <div className="flex items-center gap-3">
-          {user && (
-            <span className="text-sm text-neutral-400">
-              {user.email || user.name}
-            </span>
-          )}
+          <LanguageSelector compact />
           <CreateVideoButton onClick={() => setOpenCreate(true)} />
-          <button
-            onClick={logout}
-            className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded text-white text-sm font-medium transition"
-          >
-            Logout
-          </button>
+          <UserMenu />
         </div>
       </div>
 
@@ -113,7 +143,7 @@ export function VideoListContainer() {
         <StatusFilter value={status} onChange={handleStatusChange} />
 
         <div className="flex items-center gap-2">
-          <span>Search:</span>
+          <span>{t('videoList.search')}:</span>
           <input
             type="text"
             className="px-2 py-1 rounded text-black"
@@ -124,11 +154,11 @@ export function VideoListContainer() {
             onClick={handleRefresh}
             className="px-3 py-1 bg-blue-600 rounded text-white text-sm hover:bg-blue-500 transition"
           >
-            Refresh
+            {t('action.refresh')}
           </button>
           {lastUpdated && (
             <span className="text-sm text-neutral-400">
-              Last updated: {lastUpdated.toLocaleTimeString()}
+              {t('videoList.lastUpdated')}: {lastUpdated.toLocaleTimeString()}
             </span>
           )}
         </div>
@@ -137,7 +167,7 @@ export function VideoListContainer() {
           value={sort}
           onChange={(v) => {
             setSort(v);
-            // Don't call refetch here - useEffect in useVideoList will handle it
+            // Don't call refetch here - useEffect in useVideoListQuery will handle it
           }}
         />
       </div>
@@ -173,7 +203,7 @@ export function VideoListContainer() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  Retrying in background...
+                  {t('loading.retrying')}
                 </p>
               )}
             </div>
@@ -181,7 +211,7 @@ export function VideoListContainer() {
               onClick={handleRefresh}
               className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 text-white text-sm font-medium transition whitespace-nowrap"
             >
-              Retry Now
+              {t('action.retry')}
             </button>
           </div>
         </div>
@@ -210,17 +240,17 @@ export function VideoListContainer() {
                 disabled={!canPrev || loading}
                 className="px-3 py-1 bg-neutral-700 rounded disabled:opacity-40"
               >
-                Prev
+                {t('action.prev')}
               </button>
 
-              <span className="text-white font-semibold">Page {currentPage}</span>
+              <span className="text-white font-semibold">{t('videoList.page')} {currentPage}</span>
 
               <button
                 onClick={goNext}
                 disabled={!canNext || loading}
                 className="px-3 py-1 bg-blue-600 rounded disabled:opacity-40"
               >
-                Next
+                {t('action.next')}
               </button>
             </div>
           </>

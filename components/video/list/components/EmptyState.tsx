@@ -1,4 +1,5 @@
 import { useVideoListContext } from "../hooks/VideoListContext";
+import { useLanguage } from "../../../../contexts/LanguageContext";
 
 interface Props {
   onCreateClick?: () => void;
@@ -7,6 +8,7 @@ interface Props {
 
 export function EmptyState({ onCreateClick, showFiltersEmpty }: Props) {
   const { setStatus, setSearch } = useVideoListContext();
+  const { t } = useLanguage();
 
   const handleReset = () => {
     setStatus("All");
@@ -39,12 +41,12 @@ export function EmptyState({ onCreateClick, showFiltersEmpty }: Props) {
       </svg>
 
       <p className="text-lg font-medium">
-        {showFiltersEmpty ? "No videos found" : "No video tasks yet"}
+        {showFiltersEmpty ? t('empty.noResults.title') : t('empty.noVideos.title')}
       </p>
       <p className="text-sm text-neutral-500 mt-1 mb-4">
         {showFiltersEmpty 
-          ? "No videos match your current filters or search."
-          : "Get started by creating your first video task."
+          ? t('empty.noResults.description')
+          : t('empty.noVideos.description')
         }
       </p>
       
@@ -63,7 +65,7 @@ export function EmptyState({ onCreateClick, showFiltersEmpty }: Props) {
               onClick={onCreateClick}
               className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded text-white font-medium transition"
             >
-              Create Your First Task
+              {t('empty.noVideos.action')}
             </button>
           )
         )}

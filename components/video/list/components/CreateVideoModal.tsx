@@ -1,9 +1,19 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/router";
 import { showToast } from "../../../common/Toast";
 import { useCreateVideo } from "../hooks/useCreateVideo";
 import { Video } from "../../types/videoTypes";
 import { useAuth } from "../../../../contexts/AuthContext";
+import { useLanguage } from "../../../../contexts/LanguageContext";
+
+// Generate UUID v4
+const generateUUID = (): string => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 type Props = {
   open: boolean;
@@ -17,6 +27,7 @@ type DebugInfo = {
   status: number | null;
   requestId: string | null;
   idempotencyKey: string | null;
+  idempotencyKeyShort: string | null;
   errorCode: string | null;
   errorMessage: string | null;
   timestamp: string;
@@ -29,10 +40,19 @@ type ValidationErrors = {
   params?: string;
 };
 
+// Validation constants
+const MAX_TITLE_LENGTH = 200;
+const MAX_PROMPT_LENGTH = 2000;
+
 export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   const router = useRouter();
   const { mutate, isPending } = useCreateVideo();
   const { token } = useAuth();
+  const { t } = useLanguage();
+  
+  // Double-submit prevention with ref
+  const isSubmittingRef = useRef(false);
+  const currentIdempotencyKeyRef = useRef<string | null>(null);
   
   // Form fields
   const [title, setTitle] = useState("");
@@ -43,31 +63,59 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   // Validation state
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [isValidatingParams, setIsValidatingParams] = useState(false);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   // Debug panel state
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
 
-  // Client-side validation
+  // Reset form when modal opens/closes
+  useEffect(() => {
+    if (open) {
+      // Reset everything when opening
+      setTitle("");
+      setPrompt("");
+      setEngine("mock");
+      setParamsJson('{\n  "durationSec": 5,\n  "ratio": "16:9"\n}');
+      setValidationErrors({});
+      setHasAttemptedSubmit(false);
+      setShowDebug(false);
+      setDebugInfo(null);
+      isSubmittingRef.current = false;
+      currentIdempotencyKeyRef.current = null;
+    }
+  }, [open]);
+
+  // Enhanced client-side validation
   const validateForm = (): boolean => {
     const errors: ValidationErrors = {};
 
     // Title validation
-    if (!title.trim()) {
-      errors.title = "Title is required";
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      errors.title = t('create.form.titleRequired');
+    } else if (trimmedTitle.length > MAX_TITLE_LENGTH) {
+      errors.title = t('create.form.titleMaxLength', { max: MAX_TITLE_LENGTH });
     }
 
     // Prompt validation
-    if (!prompt.trim()) {
-      errors.prompt = "Prompt is required";
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      errors.prompt = t('create.form.promptRequired');
+    } else if (trimmedPrompt.length > MAX_PROMPT_LENGTH) {
+      errors.prompt = t('create.form.promptMaxLength', { max: MAX_PROMPT_LENGTH });
     }
 
     // JSON params validation
     if (paramsJson.trim()) {
       try {
-        JSON.parse(paramsJson);
+        const parsed = JSON.parse(paramsJson);
+        // Additional validation for params structure
+        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+          errors.params = t('create.form.paramsInvalid');
+        }
       } catch (e) {
-        errors.params = "Invalid JSON format";
+        errors.params = t('create.form.paramsInvalid');
       }
     }
 
@@ -75,31 +123,108 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
     return Object.keys(errors).length === 0;
   };
 
-  // Real-time JSON validation
+  // Real-time validation for individual fields
+  const validateField = (field: keyof ValidationErrors, value: string) => {
+    const errors = { ...validationErrors };
+    
+    switch (field) {
+      case 'title':
+        const trimmedTitle = value.trim();
+        if (!trimmedTitle && hasAttemptedSubmit) {
+          errors.title = t('create.form.titleRequired');
+        } else if (trimmedTitle.length > MAX_TITLE_LENGTH) {
+          errors.title = t('create.form.titleMaxLength', { max: MAX_TITLE_LENGTH });
+        } else {
+          delete errors.title;
+        }
+        break;
+        
+      case 'prompt':
+        const trimmedPrompt = value.trim();
+        if (!trimmedPrompt && hasAttemptedSubmit) {
+          errors.prompt = t('create.form.promptRequired');
+        } else if (trimmedPrompt.length > MAX_PROMPT_LENGTH) {
+          errors.prompt = t('create.form.promptMaxLength', { max: MAX_PROMPT_LENGTH });
+        } else {
+          delete errors.prompt;
+        }
+        break;
+    }
+    
+    setValidationErrors(errors);
+  };
+
+  // Real-time JSON validation with debounce
   const handleParamsChange = (value: string) => {
     setParamsJson(value);
     setIsValidatingParams(true);
     
     // Debounced validation
     setTimeout(() => {
+      const errors = { ...validationErrors };
+      
       if (value.trim()) {
         try {
-          JSON.parse(value);
-          setValidationErrors(prev => ({ ...prev, params: undefined }));
+          const parsed = JSON.parse(value);
+          if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+            errors.params = "Parameters must be a valid JSON object";
+          } else {
+            delete errors.params;
+          }
         } catch (e) {
-          setValidationErrors(prev => ({ ...prev, params: "Invalid JSON format" }));
+          errors.params = "Invalid JSON format";
         }
       } else {
-        setValidationErrors(prev => ({ ...prev, params: undefined }));
+        delete errors.params;
       }
+      
+      setValidationErrors(errors);
       setIsValidatingParams(false);
     }, 300);
   };
 
-  const handleSubmit = () => {
+  // Retry with same idempotency key
+  const handleRetry = () => {
+    if (!currentIdempotencyKeyRef.current) {
+      console.warn('No idempotency key available for retry');
+      return;
+    }
+    
+    console.log('Retrying with same idempotency key:', currentIdempotencyKeyRef.current);
+    handleSubmit(true); // Pass retry flag
+  };
+
+  // Get friendly error message based on status code
+  const getFriendlyErrorMessage = (status: number | null, errorMessage: string, requestId: string): string => {
+    switch (status) {
+      case 422:
+        return `Invalid data: ${errorMessage}${requestId !== "unknown" ? ` (ID: ${requestId})` : ""}`;
+      case 429:
+        return `Too many requests, please try again later${requestId !== "unknown" ? ` (ID: ${requestId})` : ""}`;
+      case 500:
+        return `Server error, please try again${requestId !== "unknown" ? ` (ID: ${requestId})` : ""}`;
+      case 401:
+        return `Session expired, please login again${requestId !== "unknown" ? ` (ID: ${requestId})` : ""}`;
+      case 403:
+        return `Access denied${requestId !== "unknown" ? ` (ID: ${requestId})` : ""}`;
+      default:
+        return `Failed to create video: ${errorMessage}${requestId !== "unknown" ? ` (ID: ${requestId})` : ""}`;
+    }
+  };
+
+  const handleSubmit = (isRetry: boolean = false) => {
+    // Set attempted submit flag for validation
+    setHasAttemptedSubmit(true);
+    
+    // Double-submit prevention
+    if (isSubmittingRef.current || isPending) {
+      console.log('Submit blocked: already in progress');
+      return;
+    }
+
     // Client-side validation
     if (!validateForm()) {
-      showToast("Please fix the form errors before submitting.", "error", 2000);
+      showToast("Please fix the errors in the form before submitting.", "error", 3000);
       return;
     }
 
@@ -109,9 +234,23 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
       try {
         params = JSON.parse(paramsJson);
       } catch (e) {
-        showToast("Invalid JSON in params field.", "error", 2000);
+        showToast("Invalid JSON in parameters field.", "error", 3000);
         return;
       }
+    }
+
+    // Set submitting flag
+    isSubmittingRef.current = true;
+
+    // Generate or reuse idempotency key
+    let idempotencyKey: string;
+    if (isRetry && currentIdempotencyKeyRef.current) {
+      idempotencyKey = currentIdempotencyKeyRef.current;
+      console.log('Reusing idempotency key for retry:', idempotencyKey);
+    } else {
+      idempotencyKey = generateUUID();
+      currentIdempotencyKeyRef.current = idempotencyKey;
+      console.log('Generated new idempotency key:', idempotencyKey);
     }
 
     // Create payload
@@ -122,8 +261,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
       params,
     };
 
-    // Generate idempotency key for tracking
-    const idempotencyKey = `create_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const idempotencyKeyShort = `${idempotencyKey.substring(0, 8)}...${idempotencyKey.substring(idempotencyKey.length - 8)}`;
     const endpoint = "/api/video-tasks";
 
     // Prepare debug info with masked token
@@ -131,13 +269,16 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
     const headers = {
       "Authorization": `Bearer ${maskedToken}`,
       "Content-Type": "application/json",
-      "Idempotency-Key": idempotencyKey,
+      "Idempotency-Key": idempotencyKeyShort,
       "X-Request-Id": "auto-generated",
     };
 
     mutate({ payload, idempotencyKey }, {
       onSuccess: (newVideo: Video) => {
-        showToast(`Video task created: ${newVideo.id}`, "success", 2000);
+        // Reset submitting flag
+        isSubmittingRef.current = false;
+        
+        showToast(`Video task created successfully: ${newVideo.id}`, "success", 2000);
         onCreated?.(newVideo);
 
         // Reset form
@@ -146,6 +287,8 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         setEngine("mock");
         setParamsJson('{\n  "durationSec": 5,\n  "ratio": "16:9"\n}');
         setValidationErrors({});
+        setHasAttemptedSubmit(false);
+        currentIdempotencyKeyRef.current = null;
         
         // Show success debug info
         setDebugInfo({
@@ -154,6 +297,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           status: 201,
           requestId: "success",
           idempotencyKey,
+          idempotencyKeyShort,
           errorCode: null,
           errorMessage: null,
           timestamp: new Date().toISOString(),
@@ -161,13 +305,16 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         });
         setShowDebug(true);
 
-        // Navigate to detail page after a short delay
+        // Auto-navigate to detail page on success
         setTimeout(() => {
           onClose();
           router.push(`/dashboard/videos/${newVideo.id}`);
         }, 1500);
       },
       onError: (error: any) => {
+        // Reset submitting flag
+        isSubmittingRef.current = false;
+        
         // Extract error details
         const requestId = error?.requestId || 
                          error?.response?.data?.requestId || 
@@ -185,6 +332,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           status,
           requestId,
           idempotencyKey,
+          idempotencyKeyShort,
           errorCode,
           errorMessage,
           timestamp: new Date().toISOString(),
@@ -192,12 +340,9 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         });
         setShowDebug(true);
 
-        // Show user-friendly error
-        showToast(
-          `Failed to create video: ${errorMessage}${requestId !== "unknown" ? ` (ID: ${requestId})` : ""}`,
-          "error",
-          5000
-        );
+        // Show friendly error message based on status code
+        const friendlyMessage = getFriendlyErrorMessage(status, errorMessage, requestId);
+        showToast(friendlyMessage, "error", 5000);
       },
     });
   };
@@ -207,13 +352,16 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-neutral-900 rounded-lg p-6 w-full max-w-2xl text-white max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-semibold mb-4">Create Video Task</h2>
+        <h2 className="text-xl font-semibold mb-4">{t('create.title')}</h2>
 
         <div className="space-y-4">
           {/* Title */}
           <div>
             <label className="block text-sm font-medium mb-1">
-              Title <span className="text-red-400">*</span>
+              {t('create.form.title')} <span className="text-red-400">*</span>
+              <span className="text-neutral-400 text-xs ml-2">
+                {t('create.form.characterCount', { current: title.length, max: MAX_TITLE_LENGTH })}
+              </span>
             </label>
             <input
               className={`w-full px-3 py-2 rounded bg-neutral-800 border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
@@ -221,15 +369,14 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                   ? 'border-red-500 bg-red-900/20' 
                   : 'border-neutral-700'
               }`}
-              placeholder="Enter video title"
+              placeholder={t('create.form.title')}
               value={title}
+              maxLength={MAX_TITLE_LENGTH}
               onChange={(e) => {
                 setTitle(e.target.value);
-                if (validationErrors.title) {
-                  setValidationErrors(prev => ({ ...prev, title: undefined }));
-                }
+                validateField('title', e.target.value);
               }}
-              disabled={isPending}
+              disabled={isPending || isSubmittingRef.current}
             />
             {validationErrors.title && (
               <div className="flex items-center gap-1 mt-1 text-red-400 text-sm">
@@ -242,7 +389,10 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           {/* Prompt */}
           <div>
             <label className="block text-sm font-medium mb-1">
-              Prompt <span className="text-red-400">*</span>
+              {t('create.form.prompt')} <span className="text-red-400">*</span>
+              <span className="text-neutral-400 text-xs ml-2">
+                {t('create.form.characterCount', { current: prompt.length, max: MAX_PROMPT_LENGTH })}
+              </span>
             </label>
             <textarea
               className={`w-full px-3 py-2 rounded bg-neutral-800 border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
@@ -251,15 +401,14 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                   : 'border-neutral-700'
               }`}
               rows={3}
-              placeholder="Describe the video you want to create"
+              placeholder={t('create.form.prompt')}
               value={prompt}
+              maxLength={MAX_PROMPT_LENGTH}
               onChange={(e) => {
                 setPrompt(e.target.value);
-                if (validationErrors.prompt) {
-                  setValidationErrors(prev => ({ ...prev, prompt: undefined }));
-                }
+                validateField('prompt', e.target.value);
               }}
-              disabled={isPending}
+              disabled={isPending || isSubmittingRef.current}
             />
             {validationErrors.prompt && (
               <div className="flex items-center gap-1 mt-1 text-red-400 text-sm">
@@ -271,12 +420,12 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
 
           {/* Engine */}
           <div>
-            <label className="block text-sm font-medium mb-1">Engine</label>
+            <label className="block text-sm font-medium mb-1">{t('create.form.engine')}</label>
             <select
               className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={engine}
               onChange={(e) => setEngine(e.target.value)}
-              disabled={isPending}
+              disabled={isPending || isSubmittingRef.current}
             >
               <option value="mock">Mock (for testing)</option>
               <option value="runway">Runway</option>
@@ -286,7 +435,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           {/* Params JSON */}
           <div>
             <label className="block text-sm font-medium mb-1">
-              Parameters (JSON) <span className="text-neutral-400">- optional</span>
+              {t('create.form.params')} <span className="text-neutral-400">- {t('create.form.paramsOptional')}</span>
             </label>
             <textarea
               className={`w-full px-3 py-2 rounded bg-neutral-800 border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 ${
@@ -298,7 +447,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
               placeholder='{\n  "durationSec": 5,\n  "ratio": "16:9"\n}'
               value={paramsJson}
               onChange={(e) => handleParamsChange(e.target.value)}
-              disabled={isPending}
+              disabled={isPending || isSubmittingRef.current}
             />
             {validationErrors.params && (
               <div className="flex items-center gap-1 mt-1 text-red-400 text-sm">
@@ -349,7 +498,9 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                     <span className="text-white break-all">{debugInfo.requestId || "N/A"}</span>
                     
                     <span className="text-neutral-400 font-semibold">Idempotency:</span>
-                    <span className="text-white break-all">{debugInfo.idempotencyKey}</span>
+                    <span className="text-white break-all" title={debugInfo.idempotencyKey || "N/A"}>
+                      {debugInfo.idempotencyKeyShort || "N/A"}
+                    </span>
                     
                     <span className="text-neutral-400 font-semibold">Timestamp:</span>
                     <span className="text-white">{new Date(debugInfo.timestamp).toLocaleString()}</span>
@@ -386,6 +537,28 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                           </div>
                         )}
                       </div>
+                      
+                      {/* Retry button for network errors */}
+                      {debugInfo.status && debugInfo.status >= 500 && currentIdempotencyKeyRef.current && (
+                        <div className="mt-3">
+                          <button
+                            onClick={handleRetry}
+                            disabled={isPending || isSubmittingRef.current}
+                            className="flex items-center gap-2 px-3 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white rounded text-sm transition-colors"
+                          >
+                            {(isPending || isSubmittingRef.current) && (
+                              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                            )}
+                            Retry with Same Key
+                          </button>
+                          <p className="text-xs text-neutral-400 mt-1">
+                            This will retry the request with the same idempotency key to prevent duplicates.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -396,19 +569,45 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
 
         <div className="flex justify-end gap-3 mt-6">
           <button
-            className="px-4 py-2 bg-neutral-700 rounded hover:bg-neutral-600 transition-colors"
+            className="px-4 py-2 bg-neutral-700 rounded hover:bg-neutral-600 transition-colors disabled:opacity-50"
             onClick={onClose}
-            disabled={isPending}
+            disabled={isPending || isSubmittingRef.current}
           >
-            Cancel
+            {t('action.cancel')}
           </button>
 
           <button
-            className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={handleSubmit}
-            disabled={isPending || !title.trim() || !prompt.trim() || !!validationErrors.params}
+            className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[120px] justify-center"
+            onClick={() => handleSubmit(false)}
+            disabled={
+              isPending || 
+              isSubmittingRef.current || 
+              !title.trim() || 
+              !prompt.trim() || 
+              !!validationErrors.params ||
+              title.length > MAX_TITLE_LENGTH ||
+              prompt.length > MAX_PROMPT_LENGTH
+            }
           >
-            {isPending ? "Creating..." : "Create Task"}
+            {(isPending || isSubmittingRef.current) && (
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  fill="none"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+            )}
+            {(isPending || isSubmittingRef.current) ? t('create.form.creating') : t('action.create')}
           </button>
         </div>
       </div>

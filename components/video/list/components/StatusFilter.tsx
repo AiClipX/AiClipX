@@ -1,4 +1,5 @@
 import { VIDEO_STATUS_CONFIG, VideoStatus } from "../../types/videoTypes";
+import { useLanguage } from "../../../../contexts/LanguageContext";
 
 const STATUSES: (VideoStatus | "All")[] = [
   "All",
@@ -14,6 +15,13 @@ interface Props {
 }
 
 export function StatusFilter({ value, onChange }: Props) {
+  const { t } = useLanguage();
+  
+  const getStatusLabel = (status: VideoStatus | "All") => {
+    if (status === "All") return t('status.all');
+    return t(`status.${status}` as any);
+  };
+
   return (
     <div className="flex gap-2 overflow-x-auto mb-4">
       {STATUSES.map((s) => (
@@ -26,7 +34,7 @@ export function StatusFilter({ value, onChange }: Props) {
               : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
           } cursor-pointer`}
         >
-          {s === "All" ? "All" : VIDEO_STATUS_CONFIG[s as VideoStatus].label}
+          {getStatusLabel(s)}
         </button>
       ))}
     </div>

@@ -6,6 +6,7 @@ import { toastSuccess, toastWarning } from "../components/common/Toast";
 type User = {
   id?: string;
   email?: string;
+  name?: string;
   [k: string]: any;
 };
 
@@ -17,6 +18,7 @@ type AuthContextType = {
   refreshMe: () => Promise<void>;
   isLoading: boolean;
   isAuthenticated: boolean;
+  isValidating: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,19 +27,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [validating, setValidating] = useState(false);
   const router = useRouter();
 
-  // Token presence check on app load
+  // Token presence check and validation on app load
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    const initializeAuth = async () => {
+      if (typeof window === "undefined") {
+        setLoading(false);
+        return;
+      }
+
       const stored = window.localStorage.getItem("aiclipx_token");
       if (stored) {
         setToken(stored);
+        setValidating(true);
+        
+        try {
+          // Validate session by calling /api/auth/me
+          await fetchMe(stored);
+          // If successful, user state is already set by fetchMe
+        } catch (err) {
+          console.warn("Session validation failed:", err);
+          // Invalid token - clear it and redirect if on protected page
+          clearAuthState();
+          
+          // Check if we're on a protected page
+          const isProtectedPage = window.location.pathname.startsWith("/dashboard") || 
+                                  window.location.pathname === "/upload";
+          
+          if (isProtectedPage) {
+            // Don't show toast during initialization to avoid flash
+            setTimeout(() => {
+              router.push("/login");
+            }, 100);
+          }
+        } finally {
+          setValidating(false);
+        }
       }
+      
       setLoading(false);
-    } else {
-      setLoading(false);
-    }
+    };
+
+    initializeAuth();
   }, []);
 
   // Listen for token expiration events from API client
@@ -48,8 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const error = event.detail;
       
       // Clear all auth state
-      setToken(null);
-      setUser(null);
+      clearAuthState();
       
       // Don't show toast here - authErrorHandler already shows it
       // Just ensure state is cleared
@@ -57,7 +89,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     window.addEventListener('auth:token-expired', handleTokenExpired);
     return () => window.removeEventListener('auth:token-expired', handleTokenExpired);
-  }, [router]);
+  }, []);
+
+  function clearAuthState() {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("aiclipx_token");
+    }
+    setToken(null);
+    setUser(null);
+  }
 
   async function fetchMe(tkn?: string) {
     try {
@@ -84,29 +124,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.localStorage.setItem("aiclipx_token", tkn);
     }
     setToken(tkn);
+    setValidating(true); // Set validating immediately when login starts
     
     try {
       await fetchMe(tkn);
       toastSuccess("Đăng nhập thành công!");
       
-      // Navigate to dashboard after successful login
-      setTimeout(() => {
-        router.push("/dashboard");
-      }, 500);
+      // Don't redirect here - let _app.js handle it to avoid double redirect
     } catch (err) {
       // If fetching user fails, clear token and show error
       logout();
       throw err;
+    } finally {
+      setValidating(false); // Clear validating state
     }
   }
 
   function logout() {
     // Clear all auth state
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem("aiclipx_token");
-    }
-    setToken(null);
-    setUser(null);
+    clearAuthState();
     
     // Show success message
     toastSuccess("Đã đăng xuất thành công");
@@ -130,7 +166,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout, 
       refreshMe, 
       isLoading: loading,
-      isAuthenticated: !!token 
+      isAuthenticated: !!token && !!user,
+      isValidating: validating
     }}>
       {children}
     </AuthContext.Provider>

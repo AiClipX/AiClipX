@@ -8,9 +8,10 @@ import { showToast } from "../../../common/Toast";
 
 interface Props {
   video: Video;
+  onRefresh?: () => void;
 }
 
-export function VideoActions({ video }: Props) {
+export function VideoActions({ video, onRefresh }: Props) {
   const router = useRouter();
   const [openDelete, setOpenDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -24,7 +25,7 @@ export function VideoActions({ video }: Props) {
       showToast("Video deleted successfully", "success", 1500);
 
       setTimeout(() => {
-        router.push("/dashboard/test-video-list");
+        router.push("/dashboard");
       }, 1000);
     } catch (error: any) {
       console.error("Delete failed:", error);
@@ -125,9 +126,12 @@ export function VideoActions({ video }: Props) {
         </>
       )}
 
-      {/* Retry - only for failed videos */}
+      {/* Retry - for failed videos */}
       {video.status === "failed" && (
-        <button className="px-4 py-2 rounded border border-yellow-600 text-yellow-400 hover:bg-yellow-600 hover:text-white transition-colors">
+        <button 
+          onClick={onRefresh}
+          className="px-4 py-2 rounded border border-yellow-600 text-yellow-400 hover:bg-yellow-600 hover:text-white transition-colors"
+        >
           Retry
         </button>
       )}

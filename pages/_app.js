@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VideoListProvider } from "../components/video/list/hooks/VideoListContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 import { EvidenceModeProvider } from "../contexts/EvidenceModeContext";
+import { LanguageProvider } from "../contexts/LanguageContext";
 import { useRouter } from "next/router";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import EnvironmentBadge from "../components/common/EnvironmentBadge";
@@ -18,26 +19,60 @@ if (typeof window !== "undefined") {
 }
 
 function InnerApp({ Component, pageProps }) {
-  const { token, isLoading } = useAuth();
+  const { token, isLoading, isValidating } = useAuth();
   const router = useRouter();
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
-    // Don't redirect while still loading token from localStorage
-    if (isLoading) return;
+    // Don't redirect while still loading token from localStorage or validating session
+    if (isLoading || isValidating || redirecting) return;
     
-    // Only redirect to login if:
-    // 1. No token exists (after loading is complete)
-    // 2. User is on a protected page (not login or home)
     if (typeof window !== "undefined") {
       const isProtectedPage = router.pathname.startsWith("/dashboard") || 
                               router.pathname === "/upload";
+      const isLoginPage = router.pathname === "/login";
       
-      // Only redirect if on protected page without token (and not loading)
-      if (!token && isProtectedPage && !isLoading) {
+      // Redirect to dashboard if we have token and we're on login page
+      if (token && isLoginPage && !isLoading && !isValidating) {
+        setRedirecting(true);
+        router.push("/dashboard");
+        return;
+      }
+      
+      // Redirect to login if on protected page without token
+      if (!token && isProtectedPage && !isLoading && !isValidating) {
+        setRedirecting(true);
         router.push("/login");
+        return;
       }
     }
-  }, [token, router.pathname, isLoading]);
+  }, [token, router.pathname, isLoading, isValidating, router, redirecting]);
+
+  // Reset redirecting state when route changes
+  useEffect(() => {
+    const handleRouteChange = () => {
+      setRedirecting(false);
+    };
+
+    router.events.on('routeChangeComplete', handleRouteChange);
+    return () => {
+      router.events.off('routeChangeComplete', handleRouteChange);
+    };
+  }, [router]);
+
+  // Show loading state while validating session (but not on login page) or redirecting
+  if (((isLoading || isValidating) && router.pathname !== "/login") || redirecting) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-950">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent border-solid rounded-full animate-spin"></div>
+          <p className="text-white text-sm">
+            {redirecting ? "Redirecting..." : isLoading ? "Loading..." : "Validating session..."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -67,15 +102,17 @@ function MyApp({ Component, pageProps }) {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <EvidenceModeProvider>
-            <VideoListProvider>
-              <InnerApp Component={Component} pageProps={pageProps} />
-              <EvidenceModeToggle />
-              <EvidenceModePanel />
-            </VideoListProvider>
-          </EvidenceModeProvider>
-        </AuthProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <EvidenceModeProvider>
+              <VideoListProvider>
+                <InnerApp Component={Component} pageProps={pageProps} />
+                <EvidenceModeToggle />
+                <EvidenceModePanel />
+              </VideoListProvider>
+            </EvidenceModeProvider>
+          </AuthProvider>
+        </LanguageProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

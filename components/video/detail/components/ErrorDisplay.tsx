@@ -2,28 +2,49 @@ import React, { useState } from 'react';
 import { 
   ExclamationTriangleIcon, 
   ClipboardDocumentIcon,
-  CheckIcon 
+  CheckIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 
 interface ErrorDisplayProps {
   errorMessage: string;
   requestId?: string;
   className?: string;
+  onRetry?: () => void;
 }
 
 const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ 
   errorMessage, 
   requestId,
-  className = '' 
+  className = '',
+  onRetry
 }) => {
   const [copied, setCopied] = useState(false);
 
-  const copyRequestId = () => {
+  const copyRequestId = async () => {
     if (requestId) {
-      navigator.clipboard.writeText(requestId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(requestId);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
     }
+  };
+
+  // Clean up error message for user display
+  const getUserFriendlyError = (error: string) => {
+    if (!error) return 'An unknown error occurred during video generation.';
+    
+    // Remove technical details but keep useful info
+    const cleanError = error
+      .replace(/Error:\s*/gi, '')
+      .replace(/Exception:\s*/gi, '')
+      .replace(/\[.*?\]/g, '') // Remove bracketed technical info
+      .trim();
+    
+    return cleanError || 'Video generation failed. Please try again.';
   };
 
   return (
@@ -34,22 +55,35 @@ const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         </div>
         
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-red-900 mb-2">
-            Video Generation Failed
-          </h3>
+          <div className="flex items-start justify-between mb-2">
+            <h3 className="text-lg font-semibold text-red-900">
+              Video Generation Failed
+            </h3>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="flex items-center gap-2 px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded transition-colors"
+              >
+                <ArrowPathIcon className="w-4 h-4" />
+                Refresh
+              </button>
+            )}
+          </div>
           
-          <p className="text-red-700 mb-4">
-            {errorMessage || 'An error occurred during video generation. Please try again.'}
-          </p>
+          <div className="bg-white border border-red-200 rounded-lg p-4 mb-4">
+            <p className="text-red-800 font-medium">
+              {getUserFriendlyError(errorMessage)}
+            </p>
+          </div>
           
           {requestId && (
-            <div className="bg-white border border-red-200 rounded-lg p-3">
+            <div className="bg-white border border-red-200 rounded-lg p-3 mb-4">
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <p className="text-xs font-semibold text-gray-600 mb-1">
                     Request ID (for support)
                   </p>
-                  <p className="font-mono text-sm text-gray-800">
+                  <p className="font-mono text-sm text-gray-800 break-all">
                     {requestId}
                   </p>
                 </div>
@@ -75,12 +109,12 @@ const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
             </div>
           )}
           
-          <div className="mt-4 text-sm text-red-600">
-            <p>💡 <strong>What to do:</strong></p>
-            <ul className="list-disc list-inside mt-2 space-y-1 text-red-700">
-              <li>Check your input parameters</li>
-              <li>Try creating the video again</li>
-              <li>Contact support with the Request ID if the issue persists</li>
+          <div className="text-sm text-red-600">
+            <p className="font-semibold mb-2">💡 What to do next:</p>
+            <ul className="list-disc list-inside space-y-1 text-red-700">
+              <li>Check your input parameters and try again</li>
+              <li>Wait a moment and retry - this might be a temporary issue</li>
+              <li>Contact support with the Request ID if the problem persists</li>
             </ul>
           </div>
         </div>
