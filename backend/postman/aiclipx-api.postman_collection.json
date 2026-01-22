@@ -1,0 +1,362 @@
+{
+	"info": {
+		"_postman_id": "be-stg12-012",
+		"name": "AiClipX API Regression",
+		"description": "BE-STG12-012: Regression test collection for AiClipX API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "{{base_url}}"
+		}
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "1. Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"",
+									"pm.test('Has access_token', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.access_token).to.be.a('string');",
+									"    pm.environment.set('access_token', json.access_token);",
+									"});",
+									"",
+									"pm.test('Has user info', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.user).to.have.property('id');",
+									"    pm.expect(json.user).to.have.property('email');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{email}}\",\n    \"password\": \"{{password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/signin",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "signin"]
+						}
+					}
+				},
+				{
+					"name": "2. Get Me",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"",
+									"pm.test('Has user object with id and email', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.user).to.be.an('object');",
+									"    pm.expect(json.user.id).to.be.a('string');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "me"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Video Tasks",
+			"item": [
+				{
+					"name": "3. Create Task",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"",
+									"pm.test('Has task id', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.id).to.match(/^vt_/);",
+									"    pm.environment.set('task_id', json.id);",
+									"});",
+									"",
+									"pm.test('Status is queued', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.status).to.equal('queued');",
+									"});",
+									"",
+									"pm.test('Has X-Request-Id header', () => {",
+									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Regression Test Task\",\n    \"prompt\": \"A beautiful sunset over mountains\",\n    \"engine\": \"mock\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"]
+						}
+					}
+				},
+				{
+					"name": "4. List Tasks",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"",
+									"pm.test('Has data array', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.data).to.be.an('array');",
+									"});",
+									"",
+									"pm.test('Has X-Request-Id header', () => {",
+									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"]
+						}
+					}
+				},
+				{
+					"name": "5. List Tasks (Pagination)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"",
+									"pm.test('Has data array with max 2 items', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.data).to.be.an('array');",
+									"    pm.expect(json.data.length).to.be.at.most(2);",
+									"});",
+									"",
+									"pm.test('Has nextCursor if more data', () => {",
+									"    const json = pm.response.json();",
+									"    // nextCursor can be null or string",
+									"    pm.expect(json).to.have.property('nextCursor');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks?limit=2",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "2"
+								}
+							]
+						}
+					}
+				},
+				{
+					"name": "6. Get Task Detail",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"",
+									"pm.test('Task id matches', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.id).to.equal(pm.environment.get('task_id'));",
+									"});",
+									"",
+									"pm.test('Has required fields', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json).to.have.property('title');",
+									"    pm.expect(json).to.have.property('status');",
+									"    pm.expect(json).to.have.property('createdAt');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks/{{task_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks", "{{task_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Negative Tests",
+			"item": [
+				{
+					"name": "7. Unauthorized (no token)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));",
+									"",
+									"pm.test('Error envelope correct', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.code).to.equal('UNAUTHORIZED');",
+									"    pm.expect(json.requestId).to.match(/^req_/);",
+									"    pm.expect(json.message).to.be.a('string');",
+									"});",
+									"",
+									"pm.test('Has X-Request-Id header', () => {",
+									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"]
+						}
+					}
+				},
+				{
+					"name": "8. Invalid Cursor",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"",
+									"pm.test('Error envelope correct', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.code).to.equal('INVALID_CURSOR');",
+									"    pm.expect(json.requestId).to.match(/^req_/);",
+									"    pm.expect(json.message).to.be.a('string');",
+									"});",
+									"",
+									"pm.test('Has X-Request-Id header', () => {",
+									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks?cursor=invalid_cursor_value",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"],
+							"query": [
+								{
+									"key": "cursor",
+									"value": "invalid_cursor_value"
+								}
+							]
+						}
+					}
+				}
+			]
+		}
+	]
+}
