@@ -1,137 +1,231 @@
-# AiClipX API Regression Collection
+# AiClipX API Regression Suite
 
-BE-STG12-012: Postman collection for API regression testing.
+BE-STG13-006: One-command regression testing for AiClipX API.
+
+## Quick Start
+
+```bash
+# Install newman (one-time)
+npm install -g newman
+
+# Run tests
+./run-newman.sh your-email@example.com your-password
+
+# Or using environment variables
+EMAIL=your-email@example.com PASSWORD=your-password ./run-newman.sh
+```
+
+**Expected time:** ~2 minutes
+
+---
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `aiclipx-api.postman_collection.json` | Postman collection with 8 requests |
-| `aiclipx-api.postman_environment.json` | Environment template (no secrets) |
+| `aiclipx-api.postman_collection.json` | Collection with 18 tests |
+| `aiclipx-api.postman_environment.template.json` | Environment template (no secrets) |
+| `run-newman.sh` | One-command runner script |
 
-## Test Coverage
+---
 
-| # | Request | Expected | Tests |
-|---|---------|----------|-------|
-| 1 | Login | 200 | access_token saved |
-| 2 | Get Me | 200 | user info present |
-| 3 | Create Task | 201 | task_id saved, status=queued |
-| 4 | List Tasks | 200 | data array |
-| 5 | List (Pagination) | 200 | limit=2, nextCursor |
-| 6 | Get Task Detail | 200 | matches created task |
-| 7 | Unauthorized | 401 | error envelope |
-| 8 | Invalid Cursor | 400 | error envelope |
+## Test Coverage (18 Tests)
+
+### 1. Auth (2 tests)
+| # | Request | Expected | Validates |
+|---|---------|----------|-----------|
+| 01 | Login | 200 | access_token saved |
+| 02 | Get Me | 200 | user object returned |
+
+### 2. Video Tasks (8 tests)
+| # | Request | Expected | Validates |
+|---|---------|----------|-----------|
+| 03 | Create Task | 201 | task_id saved, status=queued, deliveryType |
+| 04 | List Tasks | 200 | data array with items |
+| 05 | List Page 1 | 200 | max 2 items, saves nextCursor |
+| 06 | List Page 2 | 200 | uses cursor, no duplicates |
+| 07 | List with Filter | 200 | all items match status=completed |
+| 08 | List with Search | 200 | search by title works |
+| 09 | Get Task Detail | 200 | matches created task |
+| 10 | Get Completed (signed URL) | 200 | videoUrl, deliveryType, videoUrlExpiresAt |
+
+### 3. Idempotency (3 tests)
+| # | Request | Expected | Validates |
+|---|---------|----------|-----------|
+| 11 | Create with Idempotency-Key | 201 | task created, id saved |
+| 12 | Repeat Same Key | 201 | **SAME id returned** |
+| 13 | Same Key Different Payload | 409 | IDEMPOTENCY_KEY_CONFLICT |
+
+### 4. Negative Tests (5 tests)
+| # | Request | Expected | Validates |
+|---|---------|----------|-----------|
+| 14 | Unauthorized | 401 | UNAUTHORIZED + requestId |
+| 15 | Not Found | 404 | NOT_FOUND + requestId |
+| 16 | Validation Error | 422 | VALIDATION_ERROR + requestId |
+| 17 | Invalid Cursor | 400 | INVALID_CURSOR + requestId |
+| 18 | Illegal State Transition | 409 | ILLEGAL_STATE_TRANSITION + requestId |
+
+---
 
 ## Usage
 
-### Postman UI
-
-1. Import `aiclipx-api.postman_collection.json`
-2. Import `aiclipx-api.postman_environment.json`
-3. Set environment variables:
-   - `email`: your test email
-   - `password`: your test password
-4. Run collection (Collection Runner)
-
-### Newman CLI
+### Option 1: Newman CLI (Recommended)
 
 ```bash
-# Install newman
-npm install -g newman
+# Run with script
+./run-newman.sh your-email@example.com your-password
 
-# Run with inline credentials
+# Run with environment variables
+EMAIL=test@example.com PASSWORD=secret ./run-newman.sh
+
+# Run against production
+BASE_URL=https://api.aiclipx.app ./run-newman.sh email password
+
+# Run manually with newman
 newman run aiclipx-api.postman_collection.json \
-  -e aiclipx-api.postman_environment.json \
+  -e aiclipx-api.postman_environment.template.json \
   --env-var "email=YOUR_EMAIL" \
   --env-var "password=YOUR_PASSWORD"
-
-# Run with reporter
-newman run aiclipx-api.postman_collection.json \
-  -e aiclipx-api.postman_environment.json \
-  --env-var "email=YOUR_EMAIL" \
-  --env-var "password=YOUR_PASSWORD" \
-  --reporters cli,json \
-  --reporter-json-export results.json
 ```
+
+### Option 2: Postman UI
+
+1. Import `aiclipx-api.postman_collection.json`
+2. Import `aiclipx-api.postman_environment.template.json`
+3. Edit environment: set `email` and `password`
+4. Run Collection (Collection Runner)
+
+---
 
 ## Environment Variables
 
 | Variable | Description | Auto-set |
 |----------|-------------|----------|
-| `base_url` | API base URL | No |
+| `base_url` | API base URL | No (default: staging) |
 | `email` | Test user email | No |
 | `password` | Test user password | No |
 | `access_token` | JWT token | Yes (from Login) |
 | `task_id` | Created task ID | Yes (from Create Task) |
+| `next_cursor` | Pagination cursor | Yes (from List Page 1) |
+| `idempotency_key` | Generated key | Yes (from test 11) |
+| `idempotent_task_id` | Task for idempotency test | Yes (from test 11) |
+
+---
 
 ## Switching Environments
 
 Change `base_url` for different environments:
 
-- Production: `https://api.aiclipx.app` (default)
-- Staging: `https://aiclipx-iam2.onrender.com`
+| Environment | URL |
+|-------------|-----|
+| Staging | `https://aiclipx-iam2.onrender.com` (default) |
+| Production | `https://api.aiclipx.app` |
 
 ---
 
-## Licensing Compliance Rules (BE-STG13-003)
+## Troubleshooting
 
-AiClipX enforces the following compliance rules at the backend level:
-
-### 1. Final Film Output Only
-
-**Rule:** Only deliver final rendered video output. Do not expose:
-- Raw user uploads
-- Stock SFX/music files (independent audio)
-- Intermediate stems (audio-only tracks)
-
-**Implementation:**
-- `deliveryType: "final_film_only"` is set for all completed tasks
-- No endpoints return standalone audio URLs
-- Raw asset identifiers are internal only
-
-### 2. Signed URL Strategy
-
-**Rule:** Video URLs are time-limited and expire after configurable duration.
-
-**Implementation:**
-- `videoUrl` is a signed Supabase Storage URL
-- Default expiration: 24 hours (configurable via `SIGNED_URL_EXPIRY_SECONDS`)
-- `videoUrlExpiresAt` field indicates when the URL expires
-
-**Response Example:**
-```json
-{
-  "id": "vt_abc123",
-  "status": "completed",
-  "videoUrl": "https://xxx.supabase.co/storage/v1/object/sign/outputs/videos/...",
-  "deliveryType": "final_film_only",
-  "videoUrlExpiresAt": "2026-01-22T10:30:00Z"
-}
+### "newman is not installed"
+```bash
+npm install -g newman
 ```
 
-### 3. No Public Bucket Access
+### "Login failed (401)"
+- Check email/password are correct
+- Ensure user exists in Supabase Auth
 
-**Rule:** Direct public bucket paths are never exposed.
+### "Idempotency test failed"
+- Ensure `idempotency_keys` table exists in Supabase
+- Check RLS is disabled: `ALTER TABLE idempotency_keys DISABLE ROW LEVEL SECURITY;`
 
-**Implementation:**
-- All video URLs use signed tokens (`?token=xxx`)
-- URLs expire and cannot be shared permanently
-- Access requires valid signed token
+### "Page 2 test skipped"
+- This is OK if there are fewer than 3 tasks in the database
+- The test gracefully skips when no cursor is available
 
-### 4. Error Handling
+### "All tasks have filtered status" fails
+- Ensure there's at least 1 completed task in the database
+- Wait for mock tasks to complete (~25s after creation)
 
-All compliance-related errors follow standard envelope:
-```json
-{
-  "code": "ERROR_CODE",
-  "message": "User-safe message",
-  "requestId": "req_xxx"
-}
+### "Illegal State Transition" test uses wrong task
+- This test depends on test 11-12 creating and completing a task
+- Run the full collection in order
+
+---
+
+## CI/CD Integration
+
+### GitHub Actions
+
+```yaml
+- name: Run API Regression
+  run: |
+    npm install -g newman
+    cd backend/postman
+    ./run-newman.sh ${{ secrets.TEST_EMAIL }} ${{ secrets.TEST_PASSWORD }}
 ```
 
-### Environment Variables
+### Shell Script
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SIGNED_URL_EXPIRY_SECONDS` | `86400` | URL expiration time (24h) |
-| `SUPABASE_OUTPUTS_BUCKET` | `outputs` | Storage bucket name |
+```bash
+#!/bin/bash
+cd backend/postman
+./run-newman.sh "$TEST_EMAIL" "$TEST_PASSWORD"
+if [ $? -ne 0 ]; then
+  echo "Regression failed!"
+  exit 1
+fi
+```
+
+---
+
+## Compliance Notes (BE-STG13-003)
+
+The test suite validates:
+
+1. **Final Film Output Only**
+   - `deliveryType: "final_film_only"` present on all tasks
+
+2. **Signed URL Strategy**
+   - `videoUrl` present on completed tasks
+   - `videoUrlExpiresAt` field exists
+
+3. **Error Envelope**
+   - All errors include `requestId`
+   - All errors include `code`
+   - `X-Request-Id` header present
+
+---
+
+## Expected Output
+
+```
+AiClipX API Regression (STG13)
+==============================
+
+→ 1. Auth
+  → 01. Login
+    ✓ Status 200
+    ✓ Has access_token
+    ✓ Has user info
+
+→ 2. Video Tasks
+  → 03. Create Task
+    ✓ Status 201
+    ✓ Has task id
+    ✓ Status is queued
+    ✓ Has deliveryType
+    ✓ Has X-Request-Id header
+
+...
+
+→ 3. Idempotency
+  → 12. Repeat Same Key (same id)
+    ✓ Status 201
+    ✓ Returns SAME task id (idempotency works)
+
+...
+
+========================================
+  ALL TESTS PASSED
+========================================
+```

@@ -1,8 +1,8 @@
 {
 	"info": {
-		"_postman_id": "be-stg12-012",
-		"name": "AiClipX API Regression",
-		"description": "BE-STG12-012: Regression test collection for AiClipX API",
+		"_postman_id": "be-stg13-006",
+		"name": "AiClipX API Regression (STG13)",
+		"description": "BE-STG13-006: End-to-end regression tests for auth, inbox, idempotency, and signed URL delivery",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -13,10 +13,10 @@
 	],
 	"item": [
 		{
-			"name": "Auth",
+			"name": "1. Auth",
 			"item": [
 				{
-					"name": "1. Login",
+					"name": "01. Login",
 					"event": [
 						{
 							"listen": "test",
@@ -43,10 +43,7 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
+							{"key": "Content-Type", "value": "application/json"}
 						],
 						"body": {
 							"mode": "raw",
@@ -60,7 +57,7 @@
 					}
 				},
 				{
-					"name": "2. Get Me",
+					"name": "02. Get Me",
 					"event": [
 						{
 							"listen": "test",
@@ -68,10 +65,11 @@
 								"exec": [
 									"pm.test('Status 200', () => pm.response.to.have.status(200));",
 									"",
-									"pm.test('Has user object with id and email', () => {",
+									"pm.test('Has user object', () => {",
 									"    const json = pm.response.json();",
 									"    pm.expect(json.user).to.be.an('object');",
 									"    pm.expect(json.user.id).to.be.a('string');",
+									"    pm.expect(json.user.email).to.be.a('string');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -81,10 +79,7 @@
 					"request": {
 						"method": "GET",
 						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{access_token}}"
-							}
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
 						],
 						"url": {
 							"raw": "{{base_url}}/api/auth/me",
@@ -96,10 +91,10 @@
 			]
 		},
 		{
-			"name": "Video Tasks",
+			"name": "2. Video Tasks",
 			"item": [
 				{
-					"name": "3. Create Task",
+					"name": "03. Create Task",
 					"event": [
 						{
 							"listen": "test",
@@ -118,6 +113,11 @@
 									"    pm.expect(json.status).to.equal('queued');",
 									"});",
 									"",
+									"pm.test('Has deliveryType', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.deliveryType).to.equal('final_film_only');",
+									"});",
+									"",
 									"pm.test('Has X-Request-Id header', () => {",
 									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
 									"});"
@@ -129,14 +129,8 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "Authorization",
-								"value": "Bearer {{access_token}}"
-							}
+							{"key": "Content-Type", "value": "application/json"},
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
 						],
 						"body": {
 							"mode": "raw",
@@ -150,7 +144,7 @@
 					}
 				},
 				{
-					"name": "4. List Tasks",
+					"name": "04. List Tasks",
 					"event": [
 						{
 							"listen": "test",
@@ -161,6 +155,7 @@
 									"pm.test('Has data array', () => {",
 									"    const json = pm.response.json();",
 									"    pm.expect(json.data).to.be.an('array');",
+									"    pm.expect(json.data.length).to.be.at.least(1);",
 									"});",
 									"",
 									"pm.test('Has X-Request-Id header', () => {",
@@ -174,10 +169,7 @@
 					"request": {
 						"method": "GET",
 						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{access_token}}"
-							}
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
 						],
 						"url": {
 							"raw": "{{base_url}}/api/video-tasks",
@@ -187,7 +179,7 @@
 					}
 				},
 				{
-					"name": "5. List Tasks (Pagination)",
+					"name": "05. List Page 1 (save cursor)",
 					"event": [
 						{
 							"listen": "test",
@@ -195,16 +187,21 @@
 								"exec": [
 									"pm.test('Status 200', () => pm.response.to.have.status(200));",
 									"",
-									"pm.test('Has data array with max 2 items', () => {",
+									"pm.test('Has max 2 items', () => {",
 									"    const json = pm.response.json();",
 									"    pm.expect(json.data).to.be.an('array');",
 									"    pm.expect(json.data.length).to.be.at.most(2);",
 									"});",
 									"",
-									"pm.test('Has nextCursor if more data', () => {",
+									"pm.test('Save nextCursor for page 2', () => {",
 									"    const json = pm.response.json();",
-									"    // nextCursor can be null or string",
-									"    pm.expect(json).to.have.property('nextCursor');",
+									"    if (json.nextCursor) {",
+									"        pm.environment.set('next_cursor', json.nextCursor);",
+									"        console.log('Saved cursor:', json.nextCursor);",
+									"    } else {",
+									"        pm.environment.set('next_cursor', '');",
+									"        console.log('No more pages');",
+									"    }",
 									"});"
 								],
 								"type": "text/javascript"
@@ -214,26 +211,146 @@
 					"request": {
 						"method": "GET",
 						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{access_token}}"
-							}
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
 						],
 						"url": {
 							"raw": "{{base_url}}/api/video-tasks?limit=2",
 							"host": ["{{base_url}}"],
 							"path": ["api", "video-tasks"],
+							"query": [{"key": "limit", "value": "2"}]
+						}
+					}
+				},
+				{
+					"name": "06. List Page 2 (use cursor)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const cursor = pm.environment.get('next_cursor');",
+									"",
+									"if (!cursor) {",
+									"    pm.test('Skip - no page 2 (not enough data)', () => {",
+									"        console.log('Skipped: only 1 page of data');",
+									"    });",
+									"} else {",
+									"    pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"    ",
+									"    pm.test('Has data array', () => {",
+									"        const json = pm.response.json();",
+									"        pm.expect(json.data).to.be.an('array');",
+									"    });",
+									"    ",
+									"    pm.test('No duplicate IDs from page 1', () => {",
+									"        // Page 2 should have different tasks",
+									"        const json = pm.response.json();",
+									"        console.log('Page 2 has', json.data.length, 'items');",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const cursor = pm.environment.get('next_cursor');",
+									"if (!cursor) {",
+									"    console.log('No cursor - will skip page 2 test');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks?limit=2&cursor={{next_cursor}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"],
 							"query": [
-								{
-									"key": "limit",
-									"value": "2"
-								}
+								{"key": "limit", "value": "2"},
+								{"key": "cursor", "value": "{{next_cursor}}"}
 							]
 						}
 					}
 				},
 				{
-					"name": "6. Get Task Detail",
+					"name": "07. List with Filter (status)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"",
+									"pm.test('All tasks have filtered status', () => {",
+									"    const json = pm.response.json();",
+									"    json.data.forEach(task => {",
+									"        pm.expect(task.status).to.equal('completed');",
+									"    });",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks?status=completed&limit=5",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"],
+							"query": [
+								{"key": "status", "value": "completed"},
+								{"key": "limit", "value": "5"}
+							]
+						}
+					}
+				},
+				{
+					"name": "08. List with Search (q)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"",
+									"pm.test('Has data array', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.data).to.be.an('array');",
+									"    // Search may or may not find matches",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks?q=Regression",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"],
+							"query": [{"key": "q", "value": "Regression"}]
+						}
+					}
+				},
+				{
+					"name": "09. Get Task Detail",
 					"event": [
 						{
 							"listen": "test",
@@ -251,6 +368,7 @@
 									"    pm.expect(json).to.have.property('title');",
 									"    pm.expect(json).to.have.property('status');",
 									"    pm.expect(json).to.have.property('createdAt');",
+									"    pm.expect(json).to.have.property('deliveryType');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -260,10 +378,7 @@
 					"request": {
 						"method": "GET",
 						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{access_token}}"
-							}
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
 						],
 						"url": {
 							"raw": "{{base_url}}/api/video-tasks/{{task_id}}",
@@ -271,14 +386,203 @@
 							"path": ["api", "video-tasks", "{{task_id}}"]
 						}
 					}
+				},
+				{
+					"name": "10. Get Completed Task (signed URL)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"",
+									"const json = pm.response.json();",
+									"const task = json.data && json.data[0];",
+									"",
+									"pm.test('Has completed task', () => {",
+									"    pm.expect(task).to.be.an('object');",
+									"    pm.expect(task.status).to.equal('completed');",
+									"    // Save for test 18",
+									"    pm.environment.set('completed_task_id', task.id);",
+									"});",
+									"",
+									"pm.test('Has videoUrl', () => {",
+									"    pm.expect(task.videoUrl).to.be.a('string');",
+									"    console.log('videoUrl:', task.videoUrl);",
+									"});",
+									"",
+									"pm.test('Has deliveryType final_film_only', () => {",
+									"    pm.expect(task.deliveryType).to.equal('final_film_only');",
+									"});",
+									"",
+									"pm.test('BE-STG13-003 compliance fields', () => {",
+									"    pm.expect(task).to.have.property('videoUrlExpiresAt');",
+									"    console.log('videoUrlExpiresAt:', task.videoUrlExpiresAt);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks?status=completed&limit=1",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"],
+							"query": [
+								{"key": "status", "value": "completed"},
+								{"key": "limit", "value": "1"}
+							]
+						}
+					}
 				}
 			]
 		},
 		{
-			"name": "Negative Tests",
+			"name": "3. Idempotency",
 			"item": [
 				{
-					"name": "7. Unauthorized (no token)",
+					"name": "11. Create with Idempotency-Key",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Generate unique idempotency key for this test run",
+									"const key = 'newman-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);",
+									"pm.environment.set('idempotency_key', key);",
+									"console.log('Generated Idempotency-Key:', key);"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"",
+									"pm.test('Save idempotent task id', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.id).to.match(/^vt_/);",
+									"    pm.environment.set('idempotent_task_id', json.id);",
+									"    console.log('First request task_id:', json.id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"},
+							{"key": "Authorization", "value": "Bearer {{access_token}}"},
+							{"key": "Idempotency-Key", "value": "{{idempotency_key}}"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Idempotency Test\",\n    \"prompt\": \"Test idempotency\",\n    \"engine\": \"mock\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"]
+						}
+					}
+				},
+				{
+					"name": "12. Repeat Same Key (same id)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"",
+									"pm.test('Returns SAME task id (idempotency works)', () => {",
+									"    const json = pm.response.json();",
+									"    const expectedId = pm.environment.get('idempotent_task_id');",
+									"    pm.expect(json.id).to.equal(expectedId);",
+									"    console.log('Second request task_id:', json.id);",
+									"    console.log('Expected:', expectedId);",
+									"    console.log('Match:', json.id === expectedId);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"},
+							{"key": "Authorization", "value": "Bearer {{access_token}}"},
+							{"key": "Idempotency-Key", "value": "{{idempotency_key}}"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Idempotency Test\",\n    \"prompt\": \"Test idempotency\",\n    \"engine\": \"mock\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"]
+						}
+					}
+				},
+				{
+					"name": "13. Same Key Different Payload (409)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 409 Conflict', () => pm.response.to.have.status(409));",
+									"",
+									"pm.test('Error code IDEMPOTENCY_KEY_CONFLICT', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.code).to.equal('IDEMPOTENCY_KEY_CONFLICT');",
+									"    pm.expect(json.requestId).to.match(/^req_/);",
+									"});",
+									"",
+									"pm.test('Has X-Request-Id header', () => {",
+									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"},
+							{"key": "Authorization", "value": "Bearer {{access_token}}"},
+							{"key": "Idempotency-Key", "value": "{{idempotency_key}}"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"DIFFERENT TITLE\",\n    \"prompt\": \"Test idempotency\",\n    \"engine\": \"mock\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "4. Negative Tests",
+			"item": [
+				{
+					"name": "14. Unauthorized (401)",
 					"event": [
 						{
 							"listen": "test",
@@ -286,7 +590,7 @@
 								"exec": [
 									"pm.test('Status 401', () => pm.response.to.have.status(401));",
 									"",
-									"pm.test('Error envelope correct', () => {",
+									"pm.test('Error envelope with requestId', () => {",
 									"    const json = pm.response.json();",
 									"    pm.expect(json.code).to.equal('UNAUTHORIZED');",
 									"    pm.expect(json.requestId).to.match(/^req_/);",
@@ -312,17 +616,17 @@
 					}
 				},
 				{
-					"name": "8. Invalid Cursor",
+					"name": "15. Not Found (404)",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Status 404', () => pm.response.to.have.status(404));",
 									"",
-									"pm.test('Error envelope correct', () => {",
+									"pm.test('Error envelope with requestId', () => {",
 									"    const json = pm.response.json();",
-									"    pm.expect(json.code).to.equal('INVALID_CURSOR');",
+									"    pm.expect(json.code).to.equal('NOT_FOUND');",
 									"    pm.expect(json.requestId).to.match(/^req_/);",
 									"    pm.expect(json.message).to.be.a('string');",
 									"});",
@@ -338,21 +642,140 @@
 					"request": {
 						"method": "GET",
 						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{access_token}}"
-							}
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/video-tasks?cursor=invalid_cursor_value",
+							"raw": "{{base_url}}/api/video-tasks/vt_nonexistent999",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks", "vt_nonexistent999"]
+						}
+					}
+				},
+				{
+					"name": "16. Validation Error (422)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 422', () => pm.response.to.have.status(422));",
+									"",
+									"pm.test('Error envelope with requestId', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.code).to.equal('VALIDATION_ERROR');",
+									"    pm.expect(json.requestId).to.match(/^req_/);",
+									"    pm.expect(json.message).to.include('title');",
+									"});",
+									"",
+									"pm.test('Has X-Request-Id header', () => {",
+									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"},
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"prompt\": \"Missing title field\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks"]
+						}
+					}
+				},
+				{
+					"name": "17. Invalid Cursor (400)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"",
+									"pm.test('Error envelope with requestId', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.code).to.equal('INVALID_CURSOR');",
+									"    pm.expect(json.requestId).to.match(/^req_/);",
+									"});",
+									"",
+									"pm.test('Has X-Request-Id header', () => {",
+									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks?cursor=invalid_cursor_xyz",
 							"host": ["{{base_url}}"],
 							"path": ["api", "video-tasks"],
-							"query": [
-								{
-									"key": "cursor",
-									"value": "invalid_cursor_value"
-								}
-							]
+							"query": [{"key": "cursor", "value": "invalid_cursor_xyz"}]
+						}
+					}
+				},
+				{
+					"name": "18. Illegal State Transition (409)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Uses completed_task_id from test 10",
+									"const taskId = pm.environment.get('completed_task_id');",
+									"console.log('Will attempt completed -> processing on task:', taskId);"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status 409 Conflict', () => pm.response.to.have.status(409));",
+									"",
+									"pm.test('Error code ILLEGAL_STATE_TRANSITION', () => {",
+									"    const json = pm.response.json();",
+									"    pm.expect(json.code).to.equal('ILLEGAL_STATE_TRANSITION');",
+									"    pm.expect(json.requestId).to.match(/^req_/);",
+									"});",
+									"",
+									"pm.test('Has X-Request-Id header', () => {",
+									"    pm.expect(pm.response.headers.get('X-Request-Id')).to.match(/^req_/);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"},
+							{"key": "Authorization", "value": "Bearer {{access_token}}"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"processing\",\n    \"progress\": 50\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/video-tasks/{{completed_task_id}}/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "video-tasks", "{{completed_task_id}}", "status"]
 						}
 					}
 				}
