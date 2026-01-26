@@ -339,6 +339,9 @@ export function useVideoListQuery() {
     lastUpdated,
     isPolling: pollingManagerRef.current?.isActive() ?? false,
     isError,
-    error,
+    error: isError ? {
+      message: error?.message || 'Unknown error',
+      requestId: error?.requestId || error?.config?.headers?.["X-Request-Id"]
+    } : null,
   };
 }

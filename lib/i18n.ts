@@ -8,6 +8,9 @@ export interface TranslationKeys {
   'nav.create': string;
   'nav.logout': string;
   'nav.login': string;
+  'nav.profile': string;
+  'nav.user': string;
+  'nav.comingSoon': string;
   
   // Common actions
   'action.create': string;
@@ -24,6 +27,9 @@ export interface TranslationKeys {
   'action.prev': string;
   'action.submit': string;
   'action.close': string;
+  'action.clearFilters': string;
+  'action.pause': string;
+  'action.resume': string;
   
   // Video statuses
   'status.queued': string;
@@ -31,16 +37,24 @@ export interface TranslationKeys {
   'status.completed': string;
   'status.failed': string;
   'status.all': string;
+  'status.processingWithProgress': string;
   
   // Video list
   'videoList.title': string;
+  'videoList.filmInbox': string;
   'videoList.search': string;
+  'videoList.searchPlaceholder': string;
   'videoList.sortBy': string;
   'videoList.sortNewest': string;
   'videoList.sortOldest': string;
   'videoList.lastUpdated': string;
   'videoList.page': string;
   'videoList.createVideo': string;
+  'videoList.engine': string;
+  'videoList.quickActions': string;
+  'videoList.openDetail': string;
+  'videoList.retryTask': string;
+  'videoList.retryComingSoon': string;
   
   // Empty states
   'empty.noVideos.title': string;
@@ -48,14 +62,21 @@ export interface TranslationKeys {
   'empty.noVideos.action': string;
   'empty.noResults.title': string;
   'empty.noResults.description': string;
+  'empty.noResultsWithFilters.title': string;
+  'empty.noResultsWithFilters.description': string;
+  'empty.noResultsWithFilters.action': string;
   'empty.loading': string;
+  'empty.createFirstFilm': string;
   
   // Create video
   'create.title': string;
+  'create.createFilm': string;
   'create.form.title': string;
+  'create.form.titlePlaceholder': string;
   'create.form.titleRequired': string;
   'create.form.titleMaxLength': string;
   'create.form.prompt': string;
+  'create.form.promptPlaceholder': string;
   'create.form.promptRequired': string;
   'create.form.promptMaxLength': string;
   'create.form.engine': string;
@@ -65,6 +86,29 @@ export interface TranslationKeys {
   'create.form.creating': string;
   'create.form.created': string;
   'create.form.characterCount': string;
+  'create.form.fixErrors': string;
+  'create.form.mockEngine': string;
+  'create.form.runwayEngine': string;
+  'create.form.validatingJson': string;
+  'create.form.viewTask': string;
+  'create.form.createAndView': string;
+  
+  // Debug panel
+  'debug.panel': string;
+  'debug.endpoint': string;
+  'debug.method': string;
+  'debug.status': string;
+  'debug.requestId': string;
+  'debug.idempotency': string;
+  'debug.timestamp': string;
+  'debug.headers': string;
+  'debug.errorDetails': string;
+  'debug.code': string;
+  'debug.message': string;
+  'debug.retryWithSameKey': string;
+  'debug.retryDescription': string;
+  'debug.pending': string;
+  'debug.na': string;
   
   // Video detail
   'detail.videoNotAvailable': string;
@@ -81,6 +125,12 @@ export interface TranslationKeys {
   'detail.retryVideo': string;
   'detail.refreshPage': string;
   'detail.openNewTab': string;
+  'detail.videoNotAvailableDescription': string;
+  'detail.generatingDescription': string;
+  'detail.queuedDescription': string;
+  'detail.failedUnknownReason': string;
+  'detail.autoRefresh': string;
+  'detail.autoRefreshDescription': string;
   
   // Error messages
   'error.networkError': string;
@@ -96,6 +146,19 @@ export interface TranslationKeys {
   'error.checkInput': string;
   'error.tryAgain': string;
   'error.contactSupport': string;
+  'error.serverSlow': string;
+  'error.serverSlowDescription': string;
+  'error.authRequired': string;
+  'error.authRequiredDescription': string;
+  'error.failedToLoadVideo': string;
+  'error.deleteFailed': string;
+  'error.videoUrlNotAvailable': string;
+  'error.downloadFailed': string;
+  'error.downloadNetworkError': string;
+  'error.downloadAccessDenied': string;
+  'error.downloadNotFound': string;
+  'error.videoGenerationFailed': string;
+  'error.cannotDeleteProcessing': string;
   
   // Loading states
   'loading.videos': string;
@@ -103,12 +166,18 @@ export interface TranslationKeys {
   'loading.creating': string;
   'loading.deleting': string;
   'loading.retrying': string;
+  'loading.app': string;
+  'loading.redirecting': string;
+  'loading.validatingSession': string;
   
   // Success messages
   'success.videoCreated': string;
   'success.videoDeleted': string;
   'success.downloadStarted': string;
   'success.copied': string;
+  'success.loginSuccess': string;
+  'success.logoutSuccess': string;
+  'success.downloadStarting': string;
   
   // Confirmation
   'confirm.delete.title': string;
@@ -121,6 +190,9 @@ export interface TranslationKeys {
   'login.password': string;
   'login.submit': string;
   'login.error': string;
+  'login.noToken': string;
+  'login.signingIn': string;
+  'login.testAccount': string;
   
   // Language
   'language.select': string;
@@ -138,6 +210,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'nav.create': 'Create',
     'nav.logout': 'Logout',
     'nav.login': 'Login',
+    'nav.profile': 'Profile',
+    'nav.user': 'User',
+    'nav.comingSoon': 'Coming soon',
     
     // Common actions
     'action.create': 'Create',
@@ -154,6 +229,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'action.prev': 'Previous',
     'action.submit': 'Submit',
     'action.close': 'Close',
+    'action.clearFilters': 'Clear Filters',
+    'action.pause': 'Pause',
+    'action.resume': 'Resume',
     
     // Video statuses
     'status.queued': 'Queued',
@@ -161,16 +239,24 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'status.completed': 'Completed',
     'status.failed': 'Failed',
     'status.all': 'All',
+    'status.processingWithProgress': 'Processing {progress}%',
     
     // Video list
     'videoList.title': 'Video List',
+    'videoList.filmInbox': 'Film Inbox',
     'videoList.search': 'Search',
+    'videoList.searchPlaceholder': 'Search by title or prompt...',
     'videoList.sortBy': 'Sort by',
     'videoList.sortNewest': 'Newest first',
     'videoList.sortOldest': 'Oldest first',
     'videoList.lastUpdated': 'Last updated',
     'videoList.page': 'Page',
     'videoList.createVideo': 'Create Video',
+    'videoList.engine': 'Engine',
+    'videoList.quickActions': 'Actions',
+    'videoList.openDetail': 'View Details',
+    'videoList.retryTask': 'Retry',
+    'videoList.retryComingSoon': 'Retry feature coming soon',
     
     // Empty states
     'empty.noVideos.title': 'No videos yet',
@@ -178,14 +264,21 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'empty.noVideos.action': 'Create Video',
     'empty.noResults.title': 'No results found',
     'empty.noResults.description': 'Try adjusting your search or filters',
+    'empty.noResultsWithFilters.title': 'No films match your criteria',
+    'empty.noResultsWithFilters.description': 'Try adjusting your search terms or filters to find what you\'re looking for',
+    'empty.noResultsWithFilters.action': 'Clear Filters',
     'empty.loading': 'Loading...',
+    'empty.createFirstFilm': 'Create your first film to get started',
     
     // Create video
     'create.title': 'Create Video Task',
+    'create.createFilm': 'Create Film',
     'create.form.title': 'Title',
+    'create.form.titlePlaceholder': 'Enter a descriptive title for your film...',
     'create.form.titleRequired': 'Title is required',
     'create.form.titleMaxLength': 'Title must be {max} characters or less',
     'create.form.prompt': 'Prompt',
+    'create.form.promptPlaceholder': 'Describe what you want to create in your film...',
     'create.form.promptRequired': 'Prompt is required',
     'create.form.promptMaxLength': 'Prompt must be {max} characters or less',
     'create.form.engine': 'Engine',
@@ -195,6 +288,29 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'create.form.creating': 'Creating...',
     'create.form.created': 'Video task created successfully',
     'create.form.characterCount': '({current}/{max})',
+    'create.form.fixErrors': 'Please fix the errors in the form before submitting.',
+    'create.form.mockEngine': 'Mock (for testing)',
+    'create.form.runwayEngine': 'Runway',
+    'create.form.validatingJson': 'Validating JSON...',
+    'create.form.viewTask': 'View Task',
+    'create.form.createAndView': 'Create & View',
+    
+    // Debug panel
+    'debug.panel': 'Request Debug Panel',
+    'debug.endpoint': 'Endpoint:',
+    'debug.method': 'Method:',
+    'debug.status': 'Status:',
+    'debug.requestId': 'Request ID:',
+    'debug.idempotency': 'Idempotency:',
+    'debug.timestamp': 'Timestamp:',
+    'debug.headers': 'Request Headers:',
+    'debug.errorDetails': 'Error Details:',
+    'debug.code': 'Code:',
+    'debug.message': 'Message:',
+    'debug.retryWithSameKey': 'Retry with Same Key',
+    'debug.retryDescription': 'This will retry the request with the same idempotency key to prevent duplicates.',
+    'debug.pending': 'Pending...',
+    'debug.na': 'N/A',
     
     // Video detail
     'detail.videoNotAvailable': 'Video Not Available',
@@ -211,6 +327,12 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'detail.retryVideo': 'Retry Video',
     'detail.refreshPage': 'Refresh Page',
     'detail.openNewTab': 'Open in New Tab',
+    'detail.videoNotAvailableDescription': 'The video generation completed but the video file is not available yet. This might be a temporary issue.',
+    'detail.generatingDescription': 'Your video is being processed. This may take a few minutes.',
+    'detail.queuedDescription': 'Your video is in the queue and will start processing soon.',
+    'detail.failedUnknownReason': 'Video generation failed for unknown reason',
+    'detail.autoRefresh': 'Auto-refresh',
+    'detail.autoRefreshDescription': 'Automatically check for status updates',
     
     // Error messages
     'error.networkError': 'Network error occurred',
@@ -226,6 +348,19 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'error.checkInput': 'Check your input parameters and try again',
     'error.tryAgain': 'Wait a moment and retry - this might be a temporary issue',
     'error.contactSupport': 'Contact support with the Request ID if the problem persists',
+    'error.serverSlow': 'Server is taking longer than expected',
+    'error.serverSlowDescription': 'The backend may be starting up. This usually takes a moment.',
+    'error.authRequired': 'Authentication Required',
+    'error.authRequiredDescription': 'Please log in to view videos.',
+    'error.failedToLoadVideo': 'Failed to Load Video Details',
+    'error.deleteFailed': 'Delete failed',
+    'error.videoUrlNotAvailable': 'Video URL not available',
+    'error.downloadFailed': 'Download failed',
+    'error.downloadNetworkError': 'Download failed: Network error or CORS issue',
+    'error.downloadAccessDenied': 'Download failed: Access denied',
+    'error.downloadNotFound': 'Download failed: Video not found',
+    'error.videoGenerationFailed': 'Video generation failed',
+    'error.cannotDeleteProcessing': 'Cannot delete while video is processing',
     
     // Loading states
     'loading.videos': 'Loading videos...',
@@ -233,12 +368,18 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'loading.creating': 'Creating video...',
     'loading.deleting': 'Deleting...',
     'loading.retrying': 'Retrying...',
+    'loading.app': 'Loading...',
+    'loading.redirecting': 'Redirecting...',
+    'loading.validatingSession': 'Validating session...',
     
     // Success messages
     'success.videoCreated': 'Video task created successfully',
     'success.videoDeleted': 'Video deleted successfully',
     'success.downloadStarted': 'Download started successfully',
     'success.copied': 'Copied to clipboard',
+    'success.loginSuccess': 'Login successful',
+    'success.logoutSuccess': 'Logged out successfully',
+    'success.downloadStarting': 'Starting download...',
     
     // Confirmation
     'confirm.delete.title': 'Delete Video',
@@ -246,11 +387,14 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'confirm.delete.confirm': 'Delete',
     
     // Login
-    'login.title': 'Login',
+    'login.title': 'Sign In',
     'login.email': 'Email',
     'login.password': 'Password',
     'login.submit': 'Sign In',
     'login.error': 'Login failed',
+    'login.noToken': 'No token returned from server',
+    'login.signingIn': 'Signing in...',
+    'login.testAccount': 'Staging Test Account',
     
     // Language
     'language.select': 'Language',
@@ -267,6 +411,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'nav.create': '생성',
     'nav.logout': '로그아웃',
     'nav.login': '로그인',
+    'nav.profile': '프로필',
+    'nav.user': '사용자',
+    'nav.comingSoon': '곧 출시',
     
     // Common actions
     'action.create': '생성',
@@ -283,6 +430,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'action.prev': '이전',
     'action.submit': '제출',
     'action.close': '닫기',
+    'action.clearFilters': '필터 지우기',
+    'action.pause': '일시정지',
+    'action.resume': '재개',
     
     // Video statuses
     'status.queued': '대기중',
@@ -290,16 +440,24 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'status.completed': '완료',
     'status.failed': '실패',
     'status.all': '전체',
+    'status.processingWithProgress': '처리중 {progress}%',
     
     // Video list
     'videoList.title': '비디오 목록',
+    'videoList.filmInbox': '창작 수신함',
     'videoList.search': '검색',
+    'videoList.searchPlaceholder': '제목이나 프롬프트로 검색...',
     'videoList.sortBy': '정렬',
     'videoList.sortNewest': '최신순',
     'videoList.sortOldest': '오래된순',
     'videoList.lastUpdated': '마지막 업데이트',
     'videoList.page': '페이지',
     'videoList.createVideo': '비디오 생성',
+    'videoList.engine': '엔진',
+    'videoList.quickActions': '작업',
+    'videoList.openDetail': '세부 정보 보기',
+    'videoList.retryTask': '재시도',
+    'videoList.retryComingSoon': '재시도 기능 곧 출시',
     
     // Empty states
     'empty.noVideos.title': '아직 비디오가 없습니다',
@@ -307,14 +465,21 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'empty.noVideos.action': '비디오 생성',
     'empty.noResults.title': '결과를 찾을 수 없습니다',
     'empty.noResults.description': '검색어나 필터를 조정해보세요',
+    'empty.noResultsWithFilters.title': '조건에 맞는 영상이 없습니다',
+    'empty.noResultsWithFilters.description': '검색어나 필터를 조정하여 원하는 내용을 찾아보세요',
+    'empty.noResultsWithFilters.action': '필터 지우기',
     'empty.loading': '로딩중...',
+    'empty.createFirstFilm': '첫 번째 영상을 만들어 시작하세요',
     
     // Create video
     'create.title': '비디오 작업 생성',
+    'create.createFilm': '영상 생성',
     'create.form.title': '제목',
+    'create.form.titlePlaceholder': '영상에 대한 설명적인 제목을 입력하세요...',
     'create.form.titleRequired': '제목은 필수입니다',
     'create.form.titleMaxLength': '제목은 {max}자 이하여야 합니다',
     'create.form.prompt': '프롬프트',
+    'create.form.promptPlaceholder': '영상에서 만들고 싶은 내용을 설명하세요...',
     'create.form.promptRequired': '프롬프트는 필수입니다',
     'create.form.promptMaxLength': '프롬프트는 {max}자 이하여야 합니다',
     'create.form.engine': '엔진',
@@ -324,6 +489,29 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'create.form.creating': '생성중...',
     'create.form.created': '비디오 작업이 성공적으로 생성되었습니다',
     'create.form.characterCount': '({current}/{max})',
+    'create.form.fixErrors': '제출하기 전에 양식의 오류를 수정해주세요.',
+    'create.form.mockEngine': '모의 (테스트용)',
+    'create.form.runwayEngine': 'Runway',
+    'create.form.validatingJson': 'JSON 검증중...',
+    'create.form.viewTask': '작업 보기',
+    'create.form.createAndView': '생성 및 보기',
+    
+    // Debug panel
+    'debug.panel': '요청 디버그 패널',
+    'debug.endpoint': '엔드포인트:',
+    'debug.method': '메소드:',
+    'debug.status': '상태:',
+    'debug.requestId': '요청 ID:',
+    'debug.idempotency': '멱등성:',
+    'debug.timestamp': '타임스탬프:',
+    'debug.headers': '요청 헤더:',
+    'debug.errorDetails': '오류 세부사항:',
+    'debug.code': '코드:',
+    'debug.message': '메시지:',
+    'debug.retryWithSameKey': '동일한 키로 재시도',
+    'debug.retryDescription': '중복을 방지하기 위해 동일한 멱등성 키로 요청을 재시도합니다.',
+    'debug.pending': '대기중...',
+    'debug.na': '해당없음',
     
     // Video detail
     'detail.videoNotAvailable': '비디오를 사용할 수 없음',
@@ -340,6 +528,12 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'detail.retryVideo': '비디오 재시도',
     'detail.refreshPage': '페이지 새로고침',
     'detail.openNewTab': '새 탭에서 열기',
+    'detail.videoNotAvailableDescription': '비디오 생성이 완료되었지만 비디오 파일을 아직 사용할 수 없습니다. 일시적인 문제일 수 있습니다.',
+    'detail.generatingDescription': '비디오가 처리 중입니다. 몇 분 정도 걸릴 수 있습니다.',
+    'detail.queuedDescription': '비디오가 대기열에 있으며 곧 처리가 시작됩니다.',
+    'detail.failedUnknownReason': '알 수 없는 이유로 비디오 생성이 실패했습니다',
+    'detail.autoRefresh': '자동 새로고침',
+    'detail.autoRefreshDescription': '상태 업데이트를 자동으로 확인',
     
     // Error messages
     'error.networkError': '네트워크 오류가 발생했습니다',
@@ -355,6 +549,19 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'error.checkInput': '입력 매개변수를 확인하고 다시 시도하세요',
     'error.tryAgain': '잠시 기다렸다가 재시도하세요 - 일시적인 문제일 수 있습니다',
     'error.contactSupport': '문제가 지속되면 요청 ID와 함께 지원팀에 문의하세요',
+    'error.serverSlow': '서버 응답이 예상보다 오래 걸리고 있습니다',
+    'error.serverSlowDescription': '백엔드가 시작 중일 수 있습니다. 보통 잠시 걸립니다.',
+    'error.authRequired': '인증 필요',
+    'error.authRequiredDescription': '비디오를 보려면 로그인해주세요.',
+    'error.failedToLoadVideo': '비디오 세부 정보 로드 실패',
+    'error.deleteFailed': '삭제 실패',
+    'error.videoUrlNotAvailable': '비디오 URL을 사용할 수 없습니다',
+    'error.downloadFailed': '다운로드 실패',
+    'error.downloadNetworkError': '다운로드 실패: 네트워크 오류 또는 CORS 문제',
+    'error.downloadAccessDenied': '다운로드 실패: 접근 거부',
+    'error.downloadNotFound': '다운로드 실패: 비디오를 찾을 수 없음',
+    'error.videoGenerationFailed': '비디오 생성 실패',
+    'error.cannotDeleteProcessing': '비디오 처리 중에는 삭제할 수 없습니다',
     
     // Loading states
     'loading.videos': '비디오 로딩중...',
@@ -362,12 +569,18 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'loading.creating': '비디오 생성중...',
     'loading.deleting': '삭제중...',
     'loading.retrying': '재시도중...',
+    'loading.app': '로딩중...',
+    'loading.redirecting': '리디렉션중...',
+    'loading.validatingSession': '세션 검증중...',
     
     // Success messages
     'success.videoCreated': '비디오 작업이 성공적으로 생성되었습니다',
     'success.videoDeleted': '비디오가 성공적으로 삭제되었습니다',
     'success.downloadStarted': '다운로드가 성공적으로 시작되었습니다',
     'success.copied': '클립보드에 복사되었습니다',
+    'success.loginSuccess': '로그인 성공',
+    'success.logoutSuccess': '로그아웃 성공',
+    'success.downloadStarting': '다운로드 시작중...',
     
     // Confirmation
     'confirm.delete.title': '비디오 삭제',
@@ -380,6 +593,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'login.password': '비밀번호',
     'login.submit': '로그인',
     'login.error': '로그인 실패',
+    'login.noToken': '서버에서 토큰이 반환되지 않았습니다',
+    'login.signingIn': '로그인 중...',
+    'login.testAccount': '스테이징 테스트 계정',
     
     // Language
     'language.select': '언어',
@@ -396,6 +612,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'nav.create': '创建',
     'nav.logout': '登出',
     'nav.login': '登录',
+    'nav.profile': '个人资料',
+    'nav.user': '用户',
+    'nav.comingSoon': '即将推出',
     
     // Common actions
     'action.create': '创建',
@@ -412,6 +631,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'action.prev': '上一页',
     'action.submit': '提交',
     'action.close': '关闭',
+    'action.clearFilters': '清除筛选',
+    'action.pause': '暂停',
+    'action.resume': '恢复',
     
     // Video statuses
     'status.queued': '排队中',
@@ -419,16 +641,24 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'status.completed': '已完成',
     'status.failed': '失败',
     'status.all': '全部',
+    'status.processingWithProgress': '处理中 {progress}%',
     
     // Video list
     'videoList.title': '视频列表',
+    'videoList.filmInbox': '创作收件箱',
     'videoList.search': '搜索',
+    'videoList.searchPlaceholder': '按标题或提示搜索...',
     'videoList.sortBy': '排序',
     'videoList.sortNewest': '最新优先',
     'videoList.sortOldest': '最旧优先',
     'videoList.lastUpdated': '最后更新',
     'videoList.page': '页面',
     'videoList.createVideo': '创建视频',
+    'videoList.engine': '引擎',
+    'videoList.quickActions': '操作',
+    'videoList.openDetail': '查看详情',
+    'videoList.retryTask': '重试',
+    'videoList.retryComingSoon': '重试功能即将推出',
     
     // Empty states
     'empty.noVideos.title': '还没有视频',
@@ -436,14 +666,21 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'empty.noVideos.action': '创建视频',
     'empty.noResults.title': '未找到结果',
     'empty.noResults.description': '尝试调整您的搜索或筛选条件',
+    'empty.noResultsWithFilters.title': '没有符合条件的影片',
+    'empty.noResultsWithFilters.description': '尝试调整搜索词或筛选条件来找到您要找的内容',
+    'empty.noResultsWithFilters.action': '清除筛选',
     'empty.loading': '加载中...',
+    'empty.createFirstFilm': '创建您的第一部影片开始使用',
     
     // Create video
     'create.title': '创建视频任务',
+    'create.createFilm': '创建影片',
     'create.form.title': '标题',
+    'create.form.titlePlaceholder': '为您的影片输入描述性标题...',
     'create.form.titleRequired': '标题是必需的',
     'create.form.titleMaxLength': '标题必须少于{max}个字符',
     'create.form.prompt': '提示',
+    'create.form.promptPlaceholder': '描述您想在影片中创建的内容...',
     'create.form.promptRequired': '提示是必需的',
     'create.form.promptMaxLength': '提示必须少于{max}个字符',
     'create.form.engine': '引擎',
@@ -453,6 +690,29 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'create.form.creating': '创建中...',
     'create.form.created': '视频任务创建成功',
     'create.form.characterCount': '({current}/{max})',
+    'create.form.fixErrors': '请在提交前修复表单中的错误。',
+    'create.form.mockEngine': '模拟 (测试用)',
+    'create.form.runwayEngine': 'Runway',
+    'create.form.validatingJson': '验证JSON中...',
+    'create.form.viewTask': '查看任务',
+    'create.form.createAndView': '创建并查看',
+    
+    // Debug panel
+    'debug.panel': '请求调试面板',
+    'debug.endpoint': '端点:',
+    'debug.method': '方法:',
+    'debug.status': '状态:',
+    'debug.requestId': '请求ID:',
+    'debug.idempotency': '幂等性:',
+    'debug.timestamp': '时间戳:',
+    'debug.headers': '请求头:',
+    'debug.errorDetails': '错误详情:',
+    'debug.code': '代码:',
+    'debug.message': '消息:',
+    'debug.retryWithSameKey': '使用相同密钥重试',
+    'debug.retryDescription': '这将使用相同的幂等性密钥重试请求以防止重复。',
+    'debug.pending': '等待中...',
+    'debug.na': '不适用',
     
     // Video detail
     'detail.videoNotAvailable': '视频不可用',
@@ -469,6 +729,12 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'detail.retryVideo': '重试视频',
     'detail.refreshPage': '刷新页面',
     'detail.openNewTab': '在新标签页中打开',
+    'detail.videoNotAvailableDescription': '视频生成已完成，但视频文件尚不可用。这可能是临时问题。',
+    'detail.generatingDescription': '您的视频正在处理中。这可能需要几分钟时间。',
+    'detail.queuedDescription': '您的视频在队列中，很快就会开始处理。',
+    'detail.failedUnknownReason': '视频生成因未知原因失败',
+    'detail.autoRefresh': '自动刷新',
+    'detail.autoRefreshDescription': '自动检查状态更新',
     
     // Error messages
     'error.networkError': '发生网络错误',
@@ -484,6 +750,19 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'error.checkInput': '检查您的输入参数并重试',
     'error.tryAgain': '等待片刻后重试 - 这可能是临时问题',
     'error.contactSupport': '如果问题持续存在，请携带请求ID联系支持团队',
+    'error.serverSlow': '服务器响应时间超出预期',
+    'error.serverSlowDescription': '后端可能正在启动中。通常需要一点时间。',
+    'error.authRequired': '需要身份验证',
+    'error.authRequiredDescription': '请登录以查看视频。',
+    'error.failedToLoadVideo': '加载视频详情失败',
+    'error.deleteFailed': '删除失败',
+    'error.videoUrlNotAvailable': '视频URL不可用',
+    'error.downloadFailed': '下载失败',
+    'error.downloadNetworkError': '下载失败：网络错误或CORS问题',
+    'error.downloadAccessDenied': '下载失败：访问被拒绝',
+    'error.downloadNotFound': '下载失败：未找到视频',
+    'error.videoGenerationFailed': '视频生成失败',
+    'error.cannotDeleteProcessing': '视频处理中无法删除',
     
     // Loading states
     'loading.videos': '加载视频中...',
@@ -491,12 +770,18 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'loading.creating': '创建视频中...',
     'loading.deleting': '删除中...',
     'loading.retrying': '重试中...',
+    'loading.app': '加载中...',
+    'loading.redirecting': '重定向中...',
+    'loading.validatingSession': '验证会话中...',
     
     // Success messages
     'success.videoCreated': '视频任务创建成功',
     'success.videoDeleted': '视频删除成功',
     'success.downloadStarted': '下载开始成功',
     'success.copied': '已复制到剪贴板',
+    'success.loginSuccess': '登录成功',
+    'success.logoutSuccess': '登出成功',
+    'success.downloadStarting': '开始下载...',
     
     // Confirmation
     'confirm.delete.title': '删除视频',
@@ -509,6 +794,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'login.password': '密码',
     'login.submit': '登录',
     'login.error': '登录失败',
+    'login.noToken': '服务器未返回令牌',
+    'login.signingIn': '登录中...',
+    'login.testAccount': '测试账户',
     
     // Language
     'language.select': '语言',
@@ -525,6 +813,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'nav.create': 'Tạo mới',
     'nav.logout': 'Đăng xuất',
     'nav.login': 'Đăng nhập',
+    'nav.profile': 'Hồ sơ',
+    'nav.user': 'Người dùng',
+    'nav.comingSoon': 'Sắp ra mắt',
     
     // Common actions
     'action.create': 'Tạo',
@@ -541,6 +832,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'action.prev': 'Trước',
     'action.submit': 'Gửi',
     'action.close': 'Đóng',
+    'action.clearFilters': 'Xóa Bộ lọc',
+    'action.pause': 'Tạm dừng',
+    'action.resume': 'Tiếp tục',
     
     // Video statuses
     'status.queued': 'Đang chờ',
@@ -548,16 +842,24 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'status.completed': 'Hoàn thành',
     'status.failed': 'Thất bại',
     'status.all': 'Tất cả',
+    'status.processingWithProgress': 'Đang xử lý {progress}%',
     
     // Video list
     'videoList.title': 'Danh sách Video',
+    'videoList.filmInbox': 'Hộp thư Sáng tạo',
     'videoList.search': 'Tìm kiếm',
+    'videoList.searchPlaceholder': 'Tìm theo tiêu đề hoặc mô tả...',
     'videoList.sortBy': 'Sắp xếp',
     'videoList.sortNewest': 'Mới nhất',
     'videoList.sortOldest': 'Cũ nhất',
     'videoList.lastUpdated': 'Cập nhật lần cuối',
     'videoList.page': 'Trang',
     'videoList.createVideo': 'Tạo Video',
+    'videoList.engine': 'Engine',
+    'videoList.quickActions': 'Thao tác',
+    'videoList.openDetail': 'Xem Chi tiết',
+    'videoList.retryTask': 'Thử lại',
+    'videoList.retryComingSoon': 'Tính năng thử lại sắp ra mắt',
     
     // Empty states
     'empty.noVideos.title': 'Chưa có video nào',
@@ -565,14 +867,21 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'empty.noVideos.action': 'Tạo Video',
     'empty.noResults.title': 'Không tìm thấy kết quả',
     'empty.noResults.description': 'Thử điều chỉnh tìm kiếm hoặc bộ lọc',
+    'empty.noResultsWithFilters.title': 'Không có phim nào phù hợp',
+    'empty.noResultsWithFilters.description': 'Thử điều chỉnh từ khóa tìm kiếm hoặc bộ lọc để tìm nội dung bạn muốn',
+    'empty.noResultsWithFilters.action': 'Xóa Bộ lọc',
     'empty.loading': 'Đang tải...',
+    'empty.createFirstFilm': 'Tạo bộ phim đầu tiên để bắt đầu',
     
     // Create video
     'create.title': 'Tạo Tác vụ Video',
+    'create.createFilm': 'Tạo Phim',
     'create.form.title': 'Tiêu đề',
+    'create.form.titlePlaceholder': 'Nhập tiêu đề mô tả cho bộ phim của bạn...',
     'create.form.titleRequired': 'Tiêu đề là bắt buộc',
     'create.form.titleMaxLength': 'Tiêu đề phải có tối đa {max} ký tự',
     'create.form.prompt': 'Mô tả',
+    'create.form.promptPlaceholder': 'Mô tả những gì bạn muốn tạo trong bộ phim...',
     'create.form.promptRequired': 'Mô tả là bắt buộc',
     'create.form.promptMaxLength': 'Mô tả phải có tối đa {max} ký tự',
     'create.form.engine': 'Engine',
@@ -582,6 +891,29 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'create.form.creating': 'Đang tạo...',
     'create.form.created': 'Tác vụ video đã được tạo thành công',
     'create.form.characterCount': '({current}/{max})',
+    'create.form.fixErrors': 'Vui lòng sửa lỗi trong biểu mẫu trước khi gửi.',
+    'create.form.mockEngine': 'Giả lập (để thử nghiệm)',
+    'create.form.runwayEngine': 'Runway',
+    'create.form.validatingJson': 'Đang xác thực JSON...',
+    'create.form.viewTask': 'Xem Tác vụ',
+    'create.form.createAndView': 'Tạo & Xem',
+    
+    // Debug panel
+    'debug.panel': 'Bảng Gỡ lỗi Yêu cầu',
+    'debug.endpoint': 'Điểm cuối:',
+    'debug.method': 'Phương thức:',
+    'debug.status': 'Trạng thái:',
+    'debug.requestId': 'ID Yêu cầu:',
+    'debug.idempotency': 'Tính bất biến:',
+    'debug.timestamp': 'Dấu thời gian:',
+    'debug.headers': 'Tiêu đề Yêu cầu:',
+    'debug.errorDetails': 'Chi tiết Lỗi:',
+    'debug.code': 'Mã:',
+    'debug.message': 'Thông báo:',
+    'debug.retryWithSameKey': 'Thử lại với Cùng Khóa',
+    'debug.retryDescription': 'Điều này sẽ thử lại yêu cầu với cùng khóa bất biến để tránh trùng lặp.',
+    'debug.pending': 'Đang chờ...',
+    'debug.na': 'Không có',
     
     // Video detail
     'detail.videoNotAvailable': 'Video Không Khả Dụng',
@@ -598,6 +930,12 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'detail.retryVideo': 'Thử Lại Video',
     'detail.refreshPage': 'Làm Mới Trang',
     'detail.openNewTab': 'Mở Trong Tab Mới',
+    'detail.videoNotAvailableDescription': 'Việc tạo video đã hoàn thành nhưng tệp video chưa khả dụng. Đây có thể là vấn đề tạm thời.',
+    'detail.generatingDescription': 'Video của bạn đang được xử lý. Quá trình này có thể mất vài phút.',
+    'detail.queuedDescription': 'Video của bạn đang trong hàng đợi và sẽ bắt đầu xử lý sớm.',
+    'detail.failedUnknownReason': 'Tạo video thất bại vì lý do không xác định',
+    'detail.autoRefresh': 'Tự động làm mới',
+    'detail.autoRefreshDescription': 'Tự động kiểm tra cập nhật trạng thái',
     
     // Error messages
     'error.networkError': 'Lỗi mạng đã xảy ra',
@@ -613,6 +951,19 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'error.checkInput': 'Kiểm tra tham số đầu vào và thử lại',
     'error.tryAgain': 'Đợi một chút và thử lại - có thể là vấn đề tạm thời',
     'error.contactSupport': 'Liên hệ hỗ trợ với ID Yêu cầu nếu vấn đề vẫn tiếp tục',
+    'error.serverSlow': 'Máy chủ phản hồi chậm hơn dự kiến',
+    'error.serverSlowDescription': 'Backend có thể đang khởi động. Thường mất một chút thời gian.',
+    'error.authRequired': 'Yêu cầu Xác thực',
+    'error.authRequiredDescription': 'Vui lòng đăng nhập để xem video.',
+    'error.failedToLoadVideo': 'Không thể tải chi tiết video',
+    'error.deleteFailed': 'Xóa thất bại',
+    'error.videoUrlNotAvailable': 'URL video không khả dụng',
+    'error.downloadFailed': 'Tải xuống thất bại',
+    'error.downloadNetworkError': 'Tải xuống thất bại: Lỗi mạng hoặc vấn đề CORS',
+    'error.downloadAccessDenied': 'Tải xuống thất bại: Truy cập bị từ chối',
+    'error.downloadNotFound': 'Tải xuống thất bại: Không tìm thấy video',
+    'error.videoGenerationFailed': 'Tạo video thất bại',
+    'error.cannotDeleteProcessing': 'Không thể xóa khi video đang được xử lý',
     
     // Loading states
     'loading.videos': 'Đang tải video...',
@@ -620,12 +971,18 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'loading.creating': 'Đang tạo video...',
     'loading.deleting': 'Đang xóa...',
     'loading.retrying': 'Đang thử lại...',
+    'loading.app': 'Đang tải...',
+    'loading.redirecting': 'Đang chuyển hướng...',
+    'loading.validatingSession': 'Đang xác thực phiên...',
     
     // Success messages
     'success.videoCreated': 'Tác vụ video đã được tạo thành công',
     'success.videoDeleted': 'Video đã được xóa thành công',
     'success.downloadStarted': 'Tải xuống đã bắt đầu thành công',
     'success.copied': 'Đã sao chép vào clipboard',
+    'success.loginSuccess': 'Đăng nhập thành công',
+    'success.logoutSuccess': 'Đăng xuất thành công',
+    'success.downloadStarting': 'Bắt đầu tải xuống...',
     
     // Confirmation
     'confirm.delete.title': 'Xóa Video',
@@ -638,6 +995,9 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'login.password': 'Mật khẩu',
     'login.submit': 'Đăng nhập',
     'login.error': 'Đăng nhập thất bại',
+    'login.noToken': 'Máy chủ không trả về token',
+    'login.signingIn': 'Đang đăng nhập...',
+    'login.testAccount': 'Tài khoản Test',
     
     // Language
     'language.select': 'Ngôn ngữ',

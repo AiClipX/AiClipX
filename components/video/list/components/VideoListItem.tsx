@@ -6,6 +6,8 @@ import { deleteVideoTask } from "../../services/videoService";
 import { ConfirmDeleteModal } from "../../../common/ConfirmDeleteModal";
 import { NotificationModal } from "../../../common/NotificationModal";
 import { showToast } from "../../../common/Toast";
+import { useLanguage } from "../../../../contexts/LanguageContext";
+import { EyeIcon, ArrowPathIcon, TrashIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
 
 interface Props {
   video: Video;
@@ -15,6 +17,7 @@ interface Props {
 export function VideoListItem({ video, removeVideo }: Props) {
   const router = useRouter();
   const { status, sort, search } = useVideoListContext();
+  const { t } = useLanguage();
 
   const [hovered, setHovered] = useState(false);
   const [openDelete, setOpenDelete] = useState(false);
@@ -34,16 +37,9 @@ export function VideoListItem({ video, removeVideo }: Props) {
   });
 
   const isDeleteDisabled = video.status === "processing" || video.status === "queued";
+  const canRetry = video.status === "failed";
 
   const handleClick = () => {
-    if (video.status === "failed") {
-      // Still allow viewing failed videos to see error details
-    }
-
-    if (video.status === "processing" || video.status === "queued") {
-      // Allow viewing to see progress
-    }
-
     // Save current list state
     sessionStorage.setItem(
       "videoListState",
@@ -53,11 +49,22 @@ export function VideoListItem({ video, removeVideo }: Props) {
     router.push(`/dashboard/videos/${video.id}`);
   };
 
+  const handleViewDetail = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    handleClick();
+  };
+
+  const handleRetry = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    // For now, show coming soon tooltip - backend support needed
+    showToast(t('videoList.retryComingSoon'), "info", 2000);
+  };
+
   const handleDelete = async () => {
     try {
       setDeleting(true);
       await deleteVideoTask(video.id);
-      showToast("Video deleted successfully", "success", 1500);
+      showToast(t('success.videoDeleted'), "success", 1500);
 
       // Optimistic update - remove from list immediately
       removeVideo(video.id);
@@ -70,7 +77,7 @@ export function VideoListItem({ video, removeVideo }: Props) {
         return;
       }
       
-      const errorMsg = error?.message || "Delete failed";
+      const errorMsg = error?.message || t('error.deleteFailed');
       showToast(errorMsg, "error", 2000);
     } finally {
       setDeleting(false);
@@ -81,12 +88,12 @@ export function VideoListItem({ video, removeVideo }: Props) {
     e.stopPropagation();
 
     if (!video.videoUrl) {
-      showToast("Video URL not available", "error");
+      showToast(t('error.videoUrlNotAvailable'), "error");
       return;
     }
 
     try {
-      showToast("Starting download...", "success", 1500);
+      showToast(t('success.downloadStarting'), "success", 1500);
 
       // Fetch video with proper error handling
       const response = await fetch(video.videoUrl, {
@@ -97,7 +104,7 @@ export function VideoListItem({ video, removeVideo }: Props) {
       });
 
       if (!response.ok) {
-        throw new Error(`Download failed: ${response.status}`);
+        throw new Error(t('error.downloadFailed') + `: ${response.status}`);
       }
 
       // Get blob from response
@@ -119,19 +126,19 @@ export function VideoListItem({ video, removeVideo }: Props) {
         window.URL.revokeObjectURL(url);
       }, 100);
 
-      showToast("Download started successfully", "success");
+      showToast(t('success.downloadStarted'), "success");
     } catch (error: any) {
       console.error("Download failed:", error);
       
       // Show specific error message
       if (error.message?.includes("Failed to fetch")) {
-        showToast("Download failed: Network error or CORS issue", "error", 3000);
+        showToast(t('error.downloadNetworkError'), "error", 3000);
       } else if (error.message?.includes("403")) {
-        showToast("Download failed: Access denied", "error", 3000);
+        showToast(t('error.downloadAccessDenied'), "error", 3000);
       } else if (error.message?.includes("404")) {
-        showToast("Download failed: Video not found", "error", 3000);
+        showToast(t('error.downloadNotFound'), "error", 3000);
       } else {
-        showToast(`Download failed: ${error.message || "Unknown error"}`, "error", 3000);
+        showToast(t('error.downloadFailed') + `: ${error.message || t('error.unknown')}`, "error", 3000);
       }
     }
   };
@@ -154,10 +161,10 @@ export function VideoListItem({ video, removeVideo }: Props) {
           {(video.status === "processing" || video.status === "queued") && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 text-white z-10">
               <div className={`font-semibold ${statusConfig.className}`}>
-                {statusConfig.label}
+                {t(`status.${video.status}`)}
               </div>
-              {video.status === "processing" && (
-                <div className="text-sm mt-1">{video.progress}%</div>
+              {video.status === "processing" && typeof video.progress === 'number' && (
+                <div className="text-sm mt-1">{Math.round(video.progress)}%</div>
               )}
             </div>
           )}
@@ -165,9 +172,9 @@ export function VideoListItem({ video, removeVideo }: Props) {
           {/* Error overlay for failed */}
           {video.status === "failed" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-red-400 text-sm p-4 text-center z-10">
-              <div className="font-semibold mb-2">Failed</div>
+              <div className="font-semibold mb-2">{t('status.failed')}</div>
               <div className="text-xs text-red-300 line-clamp-3">
-                {video.errorMessage || "Video generation failed"}
+                {video.errorMessage || t('error.videoGenerationFailed')}
               </div>
             </div>
           )}
@@ -209,10 +216,62 @@ export function VideoListItem({ video, removeVideo }: Props) {
               className="w-full h-full object-cover"
             />
           )}
+
+          {/* Quick Actions Overlay */}
+          {hovered && (
+            <div className="absolute top-2 right-2 flex gap-1 z-20">
+              <button
+                onClick={handleViewDetail}
+                className="p-1.5 bg-black/70 hover:bg-black/90 text-white rounded-full transition-colors"
+                title={t('videoList.openDetail')}
+              >
+                <EyeIcon className="w-4 h-4" />
+              </button>
+              
+              {canRetry && (
+                <button
+                  onClick={handleRetry}
+                  className="p-1.5 bg-black/70 hover:bg-black/90 text-white rounded-full transition-colors"
+                  title={t('videoList.retryComingSoon')}
+                >
+                  <ArrowPathIcon className="w-4 h-4" />
+                </button>
+              )}
+
+              {video.status === "completed" && video.videoUrl && (
+                <button
+                  onClick={handleDownload}
+                  className="p-1.5 bg-black/70 hover:bg-black/90 text-white rounded-full transition-colors"
+                  title={t('action.download')}
+                >
+                  <ArrowDownTrayIcon className="w-4 h-4" />
+                </button>
+              )}
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isDeleteDisabled) {
+                    showToast(t('error.cannotDeleteProcessing'), "warning");
+                    return;
+                  }
+                  setOpenDelete(true);
+                }}
+                className={`p-1.5 bg-black/70 hover:bg-black/90 rounded-full transition-colors ${
+                  isDeleteDisabled
+                    ? "text-neutral-500 cursor-not-allowed"
+                    : "text-red-400 hover:text-red-300"
+                }`}
+                title={isDeleteDisabled ? t('error.cannotDeleteProcessing') : t('action.delete')}
+              >
+                <TrashIcon className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="p-3">
-          <div className="font-medium text-sm text-white truncate mb-1">
+          <div className="font-medium text-sm text-white truncate mb-2">
             {video.title}
           </div>
 
@@ -221,44 +280,17 @@ export function VideoListItem({ video, removeVideo }: Props) {
               {new Date(video.createdAt).toLocaleDateString()}
             </span>
             <span className={`font-semibold ${statusConfig?.className}`}>
-              {statusConfig?.label}
+              {t(`status.${video.status}`)}
             </span>
           </div>
 
-          <div className="flex justify-between items-center">
-            {/* Download button for completed videos */}
-            {video.status === "completed" && video.videoUrl && (
-              <button
-                onClick={handleDownload}
-                className="text-xs underline text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                Download
-              </button>
-            )}
-
-            {/* Engine info */}
-            <span className="text-xs text-neutral-500 capitalize">
-              {video.engine}
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-neutral-500 capitalize">
+              {t('videoList.engine')}: {video.engine}
             </span>
-
-            {/* Delete button */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isDeleteDisabled) {
-                  showToast("Cannot delete while video is processing", "warning");
-                  return;
-                }
-                setOpenDelete(true);
-              }}
-              className={`text-xs underline transition-colors ${
-                isDeleteDisabled
-                  ? "text-neutral-600 cursor-not-allowed"
-                  : "text-red-400 hover:text-red-300"
-              }`}
-            >
-              Delete
-            </button>
+            <span className="text-neutral-600">
+              ID: {video.id.slice(-6)}
+            </span>
           </div>
         </div>
       </div>
@@ -279,8 +311,5 @@ export function VideoListItem({ video, removeVideo }: Props) {
       />
     </>
   );
-}
-function removeVideo(id: string) {
-  throw new Error("Function not implemented.");
 }
 

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import axios from "../lib/apiClient";
 import { useRouter } from "next/router";
 import { toastSuccess, toastWarning } from "../components/common/Toast";
+import { t } from "../lib/i18n";
 
 type User = {
   id?: string;
@@ -128,7 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     try {
       await fetchMe(tkn);
-      toastSuccess("Đăng nhập thành công!");
+      toastSuccess(t('success.loginSuccess'));
       
       // Don't redirect here - let _app.js handle it to avoid double redirect
     } catch (err) {
@@ -145,7 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearAuthState();
     
     // Show success message
-    toastSuccess("Đã đăng xuất thành công");
+    toastSuccess(t('success.logoutSuccess'));
     
     // Redirect to login
     setTimeout(() => {

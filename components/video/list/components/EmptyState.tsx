@@ -1,12 +1,26 @@
+import { useRouter } from "next/router";
 import { useVideoListContext } from "../hooks/VideoListContext";
 import { useLanguage } from "../../../../contexts/LanguageContext";
+import { PlusIcon, MagnifyingGlassIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 
 interface Props {
   onCreateClick?: () => void;
   showFiltersEmpty: boolean;
+  type?: 'error';
+  errorMessage?: string;
+  requestId?: string;
+  onRetry?: () => void;
 }
 
-export function EmptyState({ onCreateClick, showFiltersEmpty }: Props) {
+export function EmptyState({ 
+  onCreateClick, 
+  showFiltersEmpty, 
+  type,
+  errorMessage,
+  requestId,
+  onRetry 
+}: Props) {
+  const router = useRouter();
   const { setStatus, setSearch } = useVideoListContext();
   const { t } = useLanguage();
 
@@ -15,59 +29,92 @@ export function EmptyState({ onCreateClick, showFiltersEmpty }: Props) {
     setSearch("");
   };
 
+  const handleCreateClick = () => {
+    if (onCreateClick) {
+      onCreateClick();
+    } else {
+      router.push('/create');
+    }
+  };
+
+  // Error state
+  if (type === 'error') {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
+        <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6">
+          <ExclamationTriangleIcon className="w-8 h-8 text-red-600" />
+        </div>
+        <p className="text-lg font-medium text-white mb-2">
+          {t('error.unknown')}
+        </p>
+        <p className="text-sm text-neutral-500 mb-4 max-w-md text-center">
+          {errorMessage || t('error.serverError')}
+        </p>
+        {requestId && (
+          <p className="text-xs text-neutral-600 mb-4">
+            {t('error.requestId')}: {requestId}
+          </p>
+        )}
+        <div className="h-12 flex items-center">
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-white text-sm font-medium transition"
+            >
+              {t('action.retry')}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="h-16 w-16 mb-4 text-neutral-500"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
+      <div className="mx-auto w-16 h-16 bg-neutral-800 rounded-full flex items-center justify-center mb-6">
         {showFiltersEmpty ? (
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-          />
+          <MagnifyingGlassIcon className="w-8 h-8 text-neutral-500" />
         ) : (
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-          />
+          <PlusIcon className="w-8 h-8 text-neutral-500" />
         )}
-      </svg>
+      </div>
 
-      <p className="text-lg font-medium">
-        {showFiltersEmpty ? t('empty.noResults.title') : t('empty.noVideos.title')}
+      <p className="text-lg font-medium text-white mb-2">
+        {showFiltersEmpty ? t('empty.noResultsWithFilters.title') : t('empty.noVideos.title')}
       </p>
-      <p className="text-sm text-neutral-500 mt-1 mb-4">
+      <p className="text-sm text-neutral-500 mt-1 mb-6 max-w-md text-center">
         {showFiltersEmpty 
-          ? t('empty.noResults.description')
-          : t('empty.noVideos.description')
+          ? t('empty.noResultsWithFilters.description')
+          : t('empty.createFirstFilm')
         }
       </p>
       
       {/* Always show a button to maintain consistent layout height */}
-      <div className="h-12 flex items-center">
+      <div className="h-12 flex items-center gap-3">
         {showFiltersEmpty ? (
-          <button
-            onClick={handleReset}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-white text-sm font-medium transition"
-          >
-            Clear Filters
-          </button>
-        ) : (
-          onCreateClick && (
+          <>
             <button
-              onClick={onCreateClick}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded text-white font-medium transition"
+              onClick={handleReset}
+              className="px-4 py-2 bg-neutral-600 hover:bg-neutral-700 rounded text-white text-sm font-medium transition"
             >
+              {t('empty.noResultsWithFilters.action')}
+            </button>
+            <button
+              onClick={handleCreateClick}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-white text-sm font-medium transition"
+            >
+              <PlusIcon className="w-4 h-4" />
               {t('empty.noVideos.action')}
             </button>
-          )
+          </>
+        ) : (
+          <button
+            onClick={handleCreateClick}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded text-white font-medium transition"
+          >
+            <PlusIcon className="w-5 h-5" />
+            {t('empty.noVideos.action')}
+          </button>
         )}
       </div>
     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useVideoDetail } from "./hooks/useVideoDetail";
 import { useAuth } from "../../../contexts/AuthContext";
@@ -12,7 +12,7 @@ import { VideoActions } from "./components/VideoActions";
 import { BackButton } from "./components/BackButton";
 import { VideoDetailSkeleton } from "./components/VideoDetailSkeleton";
 import { LanguageSelector } from "../../common/LanguageSelector";
-import { ArrowPathIcon, ClipboardDocumentIcon, CheckIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, ClipboardDocumentIcon, CheckIcon, PlayIcon, PauseIcon } from '@heroicons/react/24/outline';
 
 interface Props {
   id: string;
@@ -24,6 +24,43 @@ export function VideoDetailContainer({ id }: Props) {
   const { logout, user } = useAuth();
   const { t } = useLanguage();
   const [copiedItems, setCopiedItems] = useState<Record<string, boolean>>({});
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+
+  // Auto-refresh for processing/queued videos with smart intervals
+  useEffect(() => {
+    if (!video || !autoRefreshEnabled) return;
+    
+    const isProcessing = video.status === 'processing' || video.status === 'queued';
+    if (!isProcessing) return;
+
+    // Smart polling intervals based on status
+    const getPollingInterval = () => {
+      if (video.status === 'queued') return 5000; // 5 seconds for queued
+      if (video.status === 'processing') {
+        // Adaptive interval based on progress
+        if (typeof video.progress === 'number') {
+          if (video.progress < 20) return 3000; // 3 seconds early stage
+          if (video.progress < 80) return 4000; // 4 seconds mid stage  
+          return 2000; // 2 seconds near completion
+        }
+        return 3000; // Default 3 seconds for processing
+      }
+      return 10000; // Fallback
+    };
+
+    const interval = setInterval(() => {
+      refetch();
+    }, getPollingInterval());
+
+    return () => clearInterval(interval);
+  }, [video?.status, video?.progress, autoRefreshEnabled, refetch]);
+
+  // Stop auto-refresh when video is completed or failed
+  useEffect(() => {
+    if (video && (video.status === 'completed' || video.status === 'failed')) {
+      setAutoRefreshEnabled(false);
+    }
+  }, [video?.status]);
 
   // Copy helper function
   const copyToClipboard = async (text: string, key: string) => {
@@ -36,6 +73,95 @@ export function VideoDetailContainer({ id }: Props) {
     } catch (err) {
       console.error('Failed to copy:', err);
     }
+  };
+
+  // Status progression component
+  const StatusProgression = ({ video }: { video: any }) => {
+    const getStepStatus = (step: string) => {
+      const statusOrder = ['queued', 'processing', 'completed'];
+      const currentIndex = statusOrder.indexOf(video.status);
+      const stepIndex = statusOrder.indexOf(step);
+      
+      if (video.status === 'failed') {
+        return stepIndex <= 1 ? 'error' : 'pending';
+      }
+      
+      if (stepIndex < currentIndex) return 'completed';
+      if (stepIndex === currentIndex) return 'current';
+      return 'pending';
+    };
+
+    const getStepIcon = (step: string, status: string) => {
+      if (status === 'completed') return '✓';
+      if (status === 'current') {
+        if (step === 'processing') return <ArrowPathIcon className="w-4 h-4 animate-spin" />;
+        return '●';
+      }
+      if (status === 'error') return '✗';
+      return '○';
+    };
+
+    const getStepColor = (status: string) => {
+      switch (status) {
+        case 'completed': return 'text-green-400';
+        case 'current': return 'text-blue-400';
+        case 'error': return 'text-red-400';
+        default: return 'text-neutral-500';
+      }
+    };
+
+    return (
+      <div className="bg-neutral-900 rounded-lg p-4 mb-6">
+        <h3 className="text-sm font-medium text-neutral-300 mb-3">{t('detail.progress')}</h3>
+        <div className="flex items-center justify-between">
+          {['queued', 'processing', 'completed'].map((step, index) => {
+            const status = getStepStatus(step);
+            const isLast = index === 2;
+            
+            return (
+              <div key={step} className="flex items-center flex-1">
+                <div className="flex flex-col items-center">
+                  <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
+                    status === 'completed' ? 'bg-green-400 border-green-400 text-white' :
+                    status === 'current' ? 'bg-blue-400 border-blue-400 text-white' :
+                    status === 'error' ? 'bg-red-400 border-red-400 text-white' :
+                    'border-neutral-600 text-neutral-500'
+                  }`}>
+                    {getStepIcon(step, status)}
+                  </div>
+                  <span className={`text-xs mt-1 ${getStepColor(status)}`}>
+                    {step === 'queued' ? t('status.queued') : 
+                     step === 'processing' ? t('status.processing') : 
+                     t('status.completed')}
+                  </span>
+                </div>
+                {!isLast && (
+                  <div className={`flex-1 h-0.5 mx-2 ${
+                    status === 'completed' ? 'bg-green-400' : 'bg-neutral-700'
+                  }`} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        
+        {/* Progress bar for processing */}
+        {video.status === 'processing' && typeof video.progress === 'number' && (
+          <div className="mt-4">
+            <div className="flex justify-between text-sm text-neutral-400 mb-1">
+              <span>{t('detail.progress')}</span>
+              <span>{Math.round(video.progress)}%</span>
+            </div>
+            <div className="w-full bg-neutral-700 rounded-full h-2">
+              <div
+                className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, Math.max(0, video.progress))}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   // Copy actions component
@@ -137,7 +263,7 @@ export function VideoDetailContainer({ id }: Props) {
       <div className="max-w-5xl mx-auto p-8">
         <div className="bg-red-50 border-2 border-red-200 rounded-lg p-6">
           <h2 className="text-xl font-bold text-red-900 mb-2">
-            Failed to Load Video Details
+            {t('error.failedToLoadVideo')}
           </h2>
           <p className="text-red-700 mb-4">{error}</p>
           <button
@@ -145,7 +271,7 @@ export function VideoDetailContainer({ id }: Props) {
             className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
           >
             <ArrowPathIcon className="w-5 h-5" />
-            <span>Try Again</span>
+            <span>{t('action.retry')}</span>
           </button>
         </div>
       </div>
@@ -181,6 +307,32 @@ export function VideoDetailContainer({ id }: Props) {
         />
       </div>
 
+      {/* Status Progression */}
+      <StatusProgression video={video} />
+
+      {/* Auto-refresh toggle for processing videos */}
+      {(video.status === 'processing' || video.status === 'queued') && (
+        <div className="bg-neutral-900 rounded-lg p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-white">{t('detail.autoRefresh')}</h3>
+              <p className="text-xs text-neutral-400">{t('detail.autoRefreshDescription')}</p>
+            </div>
+            <button
+              onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+              className={`flex items-center gap-2 px-3 py-1 rounded-lg text-sm transition-colors ${
+                autoRefreshEnabled 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-neutral-700 text-neutral-300'
+              }`}
+            >
+              {autoRefreshEnabled ? <PlayIcon className="w-4 h-4" /> : <PauseIcon className="w-4 h-4" />}
+              {autoRefreshEnabled ? t('action.pause') : t('action.resume')}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Video Content based on status */}
       <div className="space-y-6">
         {/* Completed: Show video player */}
@@ -205,8 +357,7 @@ export function VideoDetailContainer({ id }: Props) {
                   {t('detail.videoNotAvailable')}
                 </h3>
                 <p className="text-yellow-700 mb-4">
-                  The video generation completed but the video file is not available yet.
-                  This might be a temporary issue.
+                  {t('detail.videoNotAvailableDescription')}
                 </p>
                 <button
                   onClick={refetch}
@@ -241,7 +392,7 @@ export function VideoDetailContainer({ id }: Props) {
                   </button>
                 </div>
                 <p className="text-blue-700 mb-3">
-                  Your video is being processed. This may take a few minutes.
+                  {t('detail.generatingDescription')}
                 </p>
                 {typeof video.progress === 'number' && video.progress >= 0 && (
                   <div className="space-y-2">
@@ -283,7 +434,7 @@ export function VideoDetailContainer({ id }: Props) {
                   </button>
                 </div>
                 <p className="text-gray-700">
-                  Your video is in the queue and will start processing soon.
+                  {t('detail.queuedDescription')}
                 </p>
               </div>
             </div>
@@ -293,7 +444,7 @@ export function VideoDetailContainer({ id }: Props) {
         {/* Failed: Show error with enhanced display */}
         {video.status === 'failed' && (
           <ErrorDisplay
-            errorMessage={video.errorMessage || 'Video generation failed for unknown reason'}
+            errorMessage={video.errorMessage || t('detail.failedUnknownReason')}
             requestId={video.debug?.requestId}
             onRetry={refetch}
           />

@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "../contexts/AuthContext";
+import { useLanguage } from "../contexts/LanguageContext";
+import { LanguageSelector } from "../components/common/LanguageSelector";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("test.stg9.staging.1768316110@test.com");
@@ -8,6 +10,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const auth = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
 
   async function handleSubmit(e) {
@@ -29,14 +32,14 @@ export default function LoginPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || `Login failed (${response.status})`);
+        throw new Error(errorData.message || t('login.error') + ` (${response.status})`);
       }
 
       const data = await response.json();
       const token = data.access_token || data.token;
 
       if (!token) {
-        throw new Error("No token returned from server");
+        throw new Error(t('login.noToken'));
       }
 
       localStorage.setItem("aiclipx_token", token);
@@ -44,7 +47,7 @@ export default function LoginPage() {
       // AuthContext will handle redirect to /dashboard
     } catch (err) {
       console.error("Login error:", err);
-      setError(err.message || "Login failed");
+      setError(err.message || t('login.error'));
     } finally {
       setLoading(false);
     }
@@ -52,12 +55,17 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-900">
+      {/* Language selector in top right */}
+      <div className="absolute top-4 right-4">
+        <LanguageSelector />
+      </div>
+      
       <div className="w-full max-w-md p-8 bg-neutral-800 rounded-lg shadow-xl">
-        <h1 className="text-2xl font-bold mb-6 text-white">Sign In</h1>
+        <h1 className="text-2xl font-bold mb-6 text-white">{t('login.title')}</h1>
         
         <form onSubmit={handleSubmit}>
           <label className="block mb-4">
-            <div className="text-sm text-neutral-300 mb-1">Email</div>
+            <div className="text-sm text-neutral-300 mb-1">{t('login.email')}</div>
             <input
               className="w-full border border-neutral-700 bg-neutral-900 text-white p-2 rounded focus:border-blue-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
               value={email}
@@ -69,7 +77,7 @@ export default function LoginPage() {
           </label>
           
           <label className="block mb-4">
-            <div className="text-sm text-neutral-300 mb-1">Password</div>
+            <div className="text-sm text-neutral-300 mb-1">{t('login.password')}</div>
             <input
               className="w-full border border-neutral-700 bg-neutral-900 text-white p-2 rounded focus:border-blue-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
               value={password}
@@ -97,14 +105,14 @@ export default function LoginPage() {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
             )}
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? t('login.signingIn') : t('login.submit')}
           </button>
         </form>
 
         <div className="mt-4 p-3 bg-blue-900/30 rounded border border-blue-700 text-xs text-blue-300">
-          <div className="font-semibold mb-1">Staging Test Account</div>
-          <div>Email: test.stg9.staging.1768316110@test.com</div>
-          <div>Password: TestStg9.Pass123</div>
+          <div className="font-semibold mb-1">{t('login.testAccount')}</div>
+          <div>{t('login.email')}: test.stg9.staging.1768316110@test.com</div>
+          <div>{t('login.password')}: TestStg9.Pass123</div>
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { VideoStatus } from '../../types/videoTypes';
+import { useLanguage } from '../../../../contexts/LanguageContext';
 import {
   ClockIcon,
   ArrowPathIcon,
@@ -14,12 +15,14 @@ interface StatusBadgeProps {
 }
 
 const StatusBadge: React.FC<StatusBadgeProps> = ({ status, progress, className = '' }) => {
+  const { t } = useLanguage();
+  
   const getStatusConfig = () => {
     switch (status) {
       case 'queued':
         return {
           icon: ClockIcon,
-          text: 'Queued',
+          text: t('status.queued'),
           bgColor: 'bg-gray-100',
           textColor: 'text-gray-700',
           iconColor: 'text-gray-500',
@@ -27,7 +30,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, progress, className =
       case 'processing':
         return {
           icon: ArrowPathIcon,
-          text: progress !== undefined ? `Processing ${progress}%` : 'Generating...',
+          text: progress !== undefined ? t('status.processingWithProgress', { progress }) : t('status.processing'),
           bgColor: 'bg-blue-100',
           textColor: 'text-blue-700',
           iconColor: 'text-blue-500',
@@ -36,7 +39,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, progress, className =
       case 'completed':
         return {
           icon: CheckCircleIcon,
-          text: 'Completed',
+          text: t('status.completed'),
           bgColor: 'bg-green-100',
           textColor: 'text-green-700',
           iconColor: 'text-green-500',
@@ -44,7 +47,7 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, progress, className =
       case 'failed':
         return {
           icon: XCircleIcon,
-          text: 'Failed',
+          text: t('status.failed'),
           bgColor: 'bg-red-100',
           textColor: 'text-red-700',
           iconColor: 'text-red-500',

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { VideoListProvider } from "../components/video/list/hooks/VideoListContext";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 import { EvidenceModeProvider } from "../contexts/EvidenceModeContext";
-import { LanguageProvider } from "../contexts/LanguageContext";
+import { LanguageProvider, useLanguage } from "../contexts/LanguageContext";
 import { useRouter } from "next/router";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import EnvironmentBadge from "../components/common/EnvironmentBadge";
@@ -20,6 +20,7 @@ if (typeof window !== "undefined") {
 
 function InnerApp({ Component, pageProps }) {
   const { token, isLoading, isValidating } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
   const [redirecting, setRedirecting] = useState(false);
 
@@ -67,7 +68,7 @@ function InnerApp({ Component, pageProps }) {
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent border-solid rounded-full animate-spin"></div>
           <p className="text-white text-sm">
-            {redirecting ? "Redirecting..." : isLoading ? "Loading..." : "Validating session..."}
+            {redirecting ? t('loading.redirecting') : isLoading ? t('loading.app') : t('loading.validatingSession')}
           </p>
         </div>
       </div>

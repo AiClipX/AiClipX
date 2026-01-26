@@ -224,7 +224,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
 
     // Client-side validation
     if (!validateForm()) {
-      showToast("Please fix the errors in the form before submitting.", "error", 3000);
+      showToast(t('create.form.fixErrors'), "error", 3000);
       return;
     }
 
@@ -234,7 +234,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
       try {
         params = JSON.parse(paramsJson);
       } catch (e) {
-        showToast("Invalid JSON in parameters field.", "error", 3000);
+        showToast(t('create.form.paramsInvalid'), "error", 3000);
         return;
       }
     }
@@ -278,7 +278,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         // Reset submitting flag
         isSubmittingRef.current = false;
         
-        showToast(`Video task created successfully: ${newVideo.id}`, "success", 2000);
+        showToast(t('success.videoCreated') + `: ${newVideo.id}`, "success", 2000);
         onCreated?.(newVideo);
 
         // Reset form
@@ -352,7 +352,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-neutral-900 rounded-lg p-6 w-full max-w-2xl text-white max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-semibold mb-4">{t('create.title')}</h2>
+        <h2 className="text-xl font-semibold mb-4">{t('create.createFilm')}</h2>
 
         <div className="space-y-4">
           {/* Title */}
@@ -369,7 +369,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                   ? 'border-red-500 bg-red-900/20' 
                   : 'border-neutral-700'
               }`}
-              placeholder={t('create.form.title')}
+              placeholder={t('create.form.titlePlaceholder')}
               value={title}
               maxLength={MAX_TITLE_LENGTH}
               onChange={(e) => {
@@ -401,7 +401,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                   : 'border-neutral-700'
               }`}
               rows={3}
-              placeholder={t('create.form.prompt')}
+              placeholder={t('create.form.promptPlaceholder')}
               value={prompt}
               maxLength={MAX_PROMPT_LENGTH}
               onChange={(e) => {
@@ -427,8 +427,8 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
               onChange={(e) => setEngine(e.target.value)}
               disabled={isPending || isSubmittingRef.current}
             >
-              <option value="mock">Mock (for testing)</option>
-              <option value="runway">Runway</option>
+              <option value="mock">{t('create.form.mockEngine')}</option>
+              <option value="runway">{t('create.form.runwayEngine')}</option>
             </select>
           </div>
 
@@ -456,7 +456,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
               </div>
             )}
             {isValidatingParams && (
-              <div className="mt-1 text-blue-400 text-sm">Validating JSON...</div>
+              <div className="mt-1 text-blue-400 text-sm">{t('create.form.validatingJson')}</div>
             )}
           </div>
 
@@ -468,7 +468,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                 className="w-full px-4 py-3 bg-neutral-800 hover:bg-neutral-700 flex items-center justify-between text-sm font-medium transition-colors"
               >
                 <span className="flex items-center gap-2">
-                  🔍 Request Debug Panel
+                  🔍 {t('debug.panel')}
                   {debugInfo.status && (
                     <span className={`px-2 py-1 rounded text-xs font-semibold ${
                       debugInfo.status === 201 ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
@@ -483,32 +483,32 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
               {showDebug && (
                 <div className="p-4 bg-neutral-850 space-y-3 text-xs">
                   <div className="grid grid-cols-[120px_1fr] gap-2 font-mono">
-                    <span className="text-neutral-400 font-semibold">Endpoint:</span>
+                    <span className="text-neutral-400 font-semibold">{t('debug.endpoint')}</span>
                     <span className="text-blue-400 break-all">{debugInfo.endpoint}</span>
                     
-                    <span className="text-neutral-400 font-semibold">Method:</span>
+                    <span className="text-neutral-400 font-semibold">{t('debug.method')}</span>
                     <span className="text-white">{debugInfo.method}</span>
                     
-                    <span className="text-neutral-400 font-semibold">Status:</span>
+                    <span className="text-neutral-400 font-semibold">{t('debug.status')}</span>
                     <span className={debugInfo.status === 201 ? "text-green-400" : debugInfo.status ? "text-red-400" : "text-yellow-400"}>
-                      {debugInfo.status || "Pending..."}
+                      {debugInfo.status || t('debug.pending')}
                     </span>
                     
-                    <span className="text-neutral-400 font-semibold">Request ID:</span>
-                    <span className="text-white break-all">{debugInfo.requestId || "N/A"}</span>
+                    <span className="text-neutral-400 font-semibold">{t('debug.requestId')}</span>
+                    <span className="text-white break-all">{debugInfo.requestId || t('debug.na')}</span>
                     
-                    <span className="text-neutral-400 font-semibold">Idempotency:</span>
-                    <span className="text-white break-all" title={debugInfo.idempotencyKey || "N/A"}>
-                      {debugInfo.idempotencyKeyShort || "N/A"}
+                    <span className="text-neutral-400 font-semibold">{t('debug.idempotency')}</span>
+                    <span className="text-white break-all" title={debugInfo.idempotencyKey || t('debug.na')}>
+                      {debugInfo.idempotencyKeyShort || t('debug.na')}
                     </span>
                     
-                    <span className="text-neutral-400 font-semibold">Timestamp:</span>
+                    <span className="text-neutral-400 font-semibold">{t('debug.timestamp')}</span>
                     <span className="text-white">{new Date(debugInfo.timestamp).toLocaleString()}</span>
                   </div>
 
                   {/* Headers */}
                   <div className="border-t border-neutral-700 pt-3">
-                    <h4 className="font-semibold text-neutral-300 mb-2">Request Headers:</h4>
+                    <h4 className="font-semibold text-neutral-300 mb-2">{t('debug.headers')}</h4>
                     <div className="bg-neutral-900 p-2 rounded font-mono text-xs space-y-1">
                       {Object.entries(debugInfo.headers).map(([key, value]) => (
                         <div key={key} className="flex">
@@ -522,17 +522,17 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                   {/* Error Details */}
                   {(debugInfo.errorCode || debugInfo.errorMessage) && (
                     <div className="border-t border-neutral-700 pt-3">
-                      <h4 className="font-semibold text-red-400 mb-2">Error Details:</h4>
+                      <h4 className="font-semibold text-red-400 mb-2">{t('debug.errorDetails')}</h4>
                       <div className="bg-red-900/20 p-2 rounded space-y-1">
                         {debugInfo.errorCode && (
                           <div className="font-mono text-xs">
-                            <span className="text-red-400 font-semibold">Code:</span>
+                            <span className="text-red-400 font-semibold">{t('debug.code')}</span>
                             <span className="text-red-300 ml-2">{debugInfo.errorCode}</span>
                           </div>
                         )}
                         {debugInfo.errorMessage && (
                           <div className="font-mono text-xs">
-                            <span className="text-red-400 font-semibold">Message:</span>
+                            <span className="text-red-400 font-semibold">{t('debug.message')}</span>
                             <span className="text-red-300 ml-2">{debugInfo.errorMessage}</span>
                           </div>
                         )}
@@ -552,10 +552,10 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                               </svg>
                             )}
-                            Retry with Same Key
+                            {t('debug.retryWithSameKey')}
                           </button>
                           <p className="text-xs text-neutral-400 mt-1">
-                            This will retry the request with the same idempotency key to prevent duplicates.
+                            {t('debug.retryDescription')}
                           </p>
                         </div>
                       )}
@@ -577,7 +577,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           </button>
 
           <button
-            className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[120px] justify-center"
+            className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[140px] justify-center"
             onClick={() => handleSubmit(false)}
             disabled={
               isPending || 
@@ -607,7 +607,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                 />
               </svg>
             )}
-            {(isPending || isSubmittingRef.current) ? t('create.form.creating') : t('action.create')}
+            {(isPending || isSubmittingRef.current) ? t('create.form.creating') : t('create.form.createAndView')}
           </button>
         </div>
       </div>

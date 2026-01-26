@@ -23,7 +23,7 @@ const UserMenu: React.FC = () => {
 
   if (!user) return null;
 
-  const displayName = user.email || user.name || user.id || 'User';
+  const displayName = user.email || user.name || user.id || t('nav.user');
   const initials = displayName.substring(0, 2).toUpperCase();
 
   return (
@@ -64,7 +64,7 @@ const UserMenu: React.FC = () => {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900 truncate">
-                  {user.name || 'User'}
+                  {user.name || t('nav.user')}
                 </p>
                 <p className="text-sm text-gray-500 truncate">
                   {user.email || user.id}
@@ -81,7 +81,7 @@ const UserMenu: React.FC = () => {
               disabled
             >
               <UserCircleIcon className="w-4 h-4 text-gray-400" />
-              <span className="text-gray-400">Profile (Coming soon)</span>
+              <span className="text-gray-400">{t('nav.profile')} ({t('nav.comingSoon')})</span>
             </button>
 
             {/* Divider */}
