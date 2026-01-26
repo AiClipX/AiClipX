@@ -116,17 +116,73 @@ All API errors return a consistent JSON structure:
 
 | Code | HTTP | When | Example |
 |------|------|------|---------|
-| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests | Exceeded 5 req/min on POST |
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests per IP | Exceeded 10 req/min on POST |
 
 **Sample Response (429):**
 ```json
 {
   "code": "RATE_LIMIT_EXCEEDED",
-  "message": "Too many requests. Retry after 60 seconds",
+  "message": "Too many requests. 10 per 1 minute",
   "requestId": "req_rate1",
   "details": {}
 }
 ```
+
+---
+
+## Input Validation Limits (BE-STG13-007)
+
+### POST /api/video-tasks
+
+| Field | Type | Limit | Required |
+|-------|------|-------|----------|
+| `title` | string | 1-500 characters | Yes |
+| `prompt` | string | 1-2000 characters | Yes |
+| `sourceImageUrl` | string | max 2000 characters | No (required for `engine=runway`) |
+| `engine` | enum | `mock` or `runway` | No (default: `mock`) |
+| `params.durationSec` | int | 1-60 | No (default: 4) |
+| `params.ratio` | enum | `16:9`, `9:16`, `1:1`, `4:3` | No (default: `16:9`) |
+
+**Validation Error Examples:**
+```json
+// Missing required field
+{"code": "VALIDATION_ERROR", "message": "body.title: Field required"}
+
+// Title too long
+{"code": "VALIDATION_ERROR", "message": "body.title: String should have at most 500 characters"}
+
+// Prompt too long
+{"code": "VALIDATION_ERROR", "message": "body.prompt: String should have at most 2000 characters"}
+
+// Invalid engine
+{"code": "VALIDATION_ERROR", "message": "body.engine: Input should be 'runway' or 'mock'"}
+```
+
+### GET /api/video-tasks
+
+| Parameter | Type | Limit | Default |
+|-----------|------|-------|---------|
+| `limit` | int | 1-100 | 20 |
+| `q` | string | max 100 characters | - |
+| `status` | enum | `pending\|queued\|processing\|completed\|failed` | - |
+| `sort` | enum | `createdAt_desc\|createdAt_asc` | `createdAt_desc` |
+| `cursor` | string | valid base64 cursor | - |
+
+---
+
+## Rate Limits (BE-STG13-007)
+
+| Endpoint | Limit | Scope |
+|----------|-------|-------|
+| `POST /api/video-tasks` | 10/minute | Per IP |
+| `POST /api/auth/signin` | 10/minute | Per IP |
+| `POST /api/tts` | 30/minute | Per IP |
+| Other endpoints | 100/minute | Per IP |
+
+**Notes:**
+- Rate limits are per client IP (respects `X-Forwarded-For` header)
+- Exceeding limit returns `429 RATE_LIMIT_EXCEEDED`
+- Wait until the minute resets before retrying
 
 ---
 
