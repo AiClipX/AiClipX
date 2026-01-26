@@ -215,7 +215,18 @@ All API errors return a consistent JSON structure:
 
 | Code | HTTP | When | Example |
 |------|------|------|---------|
+| `SERVICE_UNAVAILABLE` | 503 | Feature temporarily disabled | Runway engine unavailable |
 | `INTERNAL_ERROR` | 500 | Unexpected server error | Database connection failed |
+
+**Sample Response (503 - Feature Disabled):**
+```json
+{
+  "code": "SERVICE_UNAVAILABLE",
+  "message": "Runway engine is temporarily unavailable. Please try again later or use mock engine.",
+  "requestId": "req_svc503",
+  "details": {"feature": "engineRunway", "suggestion": "Use engine=mock for testing"}
+}
+```
 
 **Sample Response (500):**
 ```json

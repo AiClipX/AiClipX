@@ -26,7 +26,7 @@ from services.ratelimit import limiter
 
 from database import close_db, init_db, check_db_health
 from generate_video import generate_video
-from routers import video_tasks, tts, auth, debug
+from routers import video_tasks, tts, auth, debug, capabilities
 from services.supabase_client import init_supabase, is_supabase_configured
 from services.runway import close_http_client
 
@@ -99,6 +99,9 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Request ID middleware (BE-STG8: reuse client's X-Request-Id if provided)
 # BE-STG11-006: Structured logging with latency, user, origin, idempotency
+# BE-STG13-009: API version header + client version logging
+from services.capabilities import API_VERSION
+
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
@@ -115,6 +118,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         idemp_key = request.headers.get("Idempotency-Key", "")
         idemp_prefix = idemp_key[:8] + "..." if idemp_key else "-"
 
+        # BE-STG13-009: Client version header
+        client_version = request.headers.get("X-AiClipX-Client-Version", "")
+
         request.state.request_id = request_id
         request.state.start_time = start_time
 
@@ -127,14 +133,19 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         user_id = getattr(request.state, "user_id", None)
         user_masked = user_id[:8] + "..." if user_id else "-"
 
+        # BE-STG13-009: Include client version in log if provided
+        client_ver_log = f" client={client_version}" if client_version else ""
+
         # Structured log line
         logger.info(
             f"[{request_id}] {request.method} {request.url.path} "
             f"→ {response.status_code} | {latency_ms}ms | "
-            f"user={user_masked} origin={origin} idemp={idemp_prefix}"
+            f"user={user_masked} origin={origin} idemp={idemp_prefix}{client_ver_log}"
         )
 
         response.headers["X-Request-Id"] = request_id
+        # BE-STG13-009: API version header on all responses
+        response.headers["X-AiClipX-Api-Version"] = str(API_VERSION)
         return response
 
 
@@ -188,8 +199,8 @@ app.add_middleware(
     allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-Id", "Accept", "Idempotency-Key"],
-    expose_headers=["X-Request-Id"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-Id", "Accept", "Idempotency-Key", "X-AiClipX-Client-Version"],
+    expose_headers=["X-Request-Id", "X-AiClipX-Api-Version"],
 )
 
 # Include routers
@@ -197,6 +208,7 @@ app.include_router(video_tasks.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")  # BE-AUTH-002
 app.include_router(debug.router, prefix="/api")  # BE-INTEG-001
+app.include_router(capabilities.router, prefix="/api")  # BE-STG13-009
 
 
 # Standard error response model

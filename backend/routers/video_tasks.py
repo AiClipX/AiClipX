@@ -28,6 +28,7 @@ from services.video_task_service import (
     video_task_service,
 )
 from services.ratelimit import limiter, RATE_LIMIT_VIDEO_CREATE, MAX_CONCURRENT_TASKS_PER_USER
+from services.capabilities import capability_service
 from services.error_response import error_response
 
 # Setup logging
@@ -364,6 +365,17 @@ async def create_video_task(
             message=f"Maximum {MAX_CONCURRENT_TASKS_PER_USER} concurrent tasks allowed. Wait for existing tasks to complete.",
             request_id=request_id,
             details={"activeCount": active_count, "limit": MAX_CONCURRENT_TASKS_PER_USER},
+        )
+
+    # BE-STG13-009: Check if runway engine is available
+    if request_body.engine == VideoEngine.runway and not capability_service.engine_runway_enabled:
+        logger.warning(f"[{request_id}] SERVICE_UNAVAILABLE: Runway engine disabled")
+        return error_response(
+            status_code=503,
+            code="SERVICE_UNAVAILABLE",
+            message="Runway engine is temporarily unavailable. Please try again later or use mock engine.",
+            request_id=request_id,
+            details={"feature": "engineRunway", "suggestion": "Use engine=mock for testing"},
         )
 
     # Validate sourceImageUrl is required for runway engine
