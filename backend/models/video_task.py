@@ -10,6 +10,7 @@ class VideoTaskStatus(str, Enum):
     processing = "processing"
     completed = "completed"
     failed = "failed"
+    cancelled = "cancelled"  # BE-STG13-008
 
 
 class VideoEngine(str, Enum):
@@ -58,6 +59,7 @@ class VideoTask(BaseModel):
     processingAt: Optional[datetime] = None  # Set once when entering 'processing'
     completedAt: Optional[datetime] = None   # Set once when entering 'completed'
     failedAt: Optional[datetime] = None      # Set once when entering 'failed'
+    cancelledAt: Optional[datetime] = None   # BE-STG13-008
 
     # BE-STG13-003: Licensing compliance fields
     deliveryType: Optional[str] = Field(

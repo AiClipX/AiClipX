@@ -16,6 +16,7 @@ from models.video_task import (
     VideoTask,
     VideoTaskListResponse,
     VideoEngine,
+    VideoTaskStatus,
 )
 from services.auth import AuthUser, get_current_user
 from services.supabase_client import get_user_client, get_service_client
@@ -26,7 +27,7 @@ from services.video_task_service import (
     process_runway_task,
     video_task_service,
 )
-from services.ratelimit import limiter, RATE_LIMIT_VIDEO_CREATE
+from services.ratelimit import limiter, RATE_LIMIT_VIDEO_CREATE, MAX_CONCURRENT_TASKS_PER_USER
 from services.error_response import error_response
 
 # Setup logging
@@ -157,7 +158,7 @@ async def get_video_tasks(
     ),
     status: Optional[str] = Query(
         default=None,
-        pattern="^(pending|queued|processing|completed|failed)$",
+        pattern="^(pending|queued|processing|completed|failed|cancelled)$",
         description="Filter by status",
     ),
     q: Optional[str] = Query(
@@ -351,6 +352,20 @@ async def create_video_task(
         f"title=\"{title_log}\" prompt=\"{prompt_log}\" engine={request_body.engine.value}"
     )
 
+    # BE-STG13-008: Check concurrency limit before creating task
+    active_count = video_task_service.count_active_tasks(user.id)
+    if active_count >= MAX_CONCURRENT_TASKS_PER_USER:
+        logger.warning(
+            f"[{request_id}] CONCURRENCY_LIMIT: user={user.id[:8]}... has {active_count} active tasks"
+        )
+        return error_response(
+            status_code=429,
+            code="CONCURRENCY_LIMIT_EXCEEDED",
+            message=f"Maximum {MAX_CONCURRENT_TASKS_PER_USER} concurrent tasks allowed. Wait for existing tasks to complete.",
+            request_id=request_id,
+            details={"activeCount": active_count, "limit": MAX_CONCURRENT_TASKS_PER_USER},
+        )
+
     # Validate sourceImageUrl is required for runway engine
     if request_body.engine == VideoEngine.runway and not request_body.sourceImageUrl:
         logger.warning(f"[{request_id}] Missing sourceImageUrl for runway engine")
@@ -509,10 +524,8 @@ async def update_task_status(
     Update task status (BE-STG8 PATCH).
 
     **State machine (strict transitions only):**
-    - queued → processing
-    - queued → failed
-    - processing → completed
-    - processing → failed
+    - queued → processing, failed, cancelled
+    - processing → completed, failed, cancelled
 
     **Field constraints:**
     - **processing**: videoUrl=null, errorMessage=null, progress 0-99
@@ -711,3 +724,100 @@ async def delete_video_task(
     logger.info(f"[{request_id}] Deleted task {task_id} | user={user.id[:8]}...")
 
     return Response(status_code=204)
+
+
+@router.post(
+    "/{task_id}/cancel",
+    response_model=VideoTask,
+    responses={
+        200: {"description": "Task cancelled successfully"},
+        403: {
+            "description": "Not authorized to cancel this task",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "FORBIDDEN",
+                        "message": "You do not have permission to access this task",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Task not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "NOT_FOUND",
+                        "message": "Video task not found",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+        409: {
+            "description": "Task cannot be cancelled (already completed/failed/cancelled)",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "ILLEGAL_STATE_TRANSITION",
+                        "message": "Cannot cancel task in completed state",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+    },
+)
+async def cancel_video_task(
+    task_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> VideoTask:
+    """
+    Cancel a video task (BE-STG13-008).
+
+    - **task_id**: Unique task identifier (e.g., vt_abc12345)
+
+    Only tasks in `queued` or `processing` state can be cancelled.
+    Background processing will stop at the next checkpoint.
+
+    Returns 404 if not found, 403 if not owned, 409 if already terminal.
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] POST /api/video-tasks/{task_id}/cancel | user={user.id[:8]}...")
+
+    # Check existence and ownership
+    task, err = _check_task_ownership(task_id, user.id, request_id)
+    if err:
+        return err
+
+    # Validate state transition (only queued/processing can be cancelled)
+    if not video_task_service.validate_transition(task.status, VideoTaskStatus.cancelled):
+        logger.warning(
+            f"[{request_id}] Cannot cancel task in {task.status.value} state"
+        )
+        return error_response(
+            status_code=409,
+            code="ILLEGAL_STATE_TRANSITION",
+            message=f"Cannot cancel task in {task.status.value} state",
+            request_id=request_id,
+            details={
+                "currentStatus": task.status.value,
+                "requestedStatus": "cancelled",
+            },
+        )
+
+    # Update task to cancelled
+    updated_task = video_task_service.update_task_status(
+        task_id=task_id,
+        status=VideoTaskStatus.cancelled,
+        request_id=request_id,
+    )
+
+    logger.info(f"[{request_id}] Task {task_id} cancelled | user={user.id[:8]}...")
+
+    # Add debug info
+    updated_task.debug = DebugInfo(requestId=request_id)
+
+    return updated_task

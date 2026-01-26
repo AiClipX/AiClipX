@@ -69,12 +69,13 @@ def safe_parse_datetime(dt_str: str) -> datetime:
         return datetime.now(timezone.utc)
 
 
-# State machine: allowed transitions
+# State machine: allowed transitions (BE-STG13-008: added cancelled)
 ALLOWED_TRANSITIONS = {
-    VideoTaskStatus.queued: [VideoTaskStatus.processing, VideoTaskStatus.failed],
-    VideoTaskStatus.processing: [VideoTaskStatus.completed, VideoTaskStatus.failed],
+    VideoTaskStatus.queued: [VideoTaskStatus.processing, VideoTaskStatus.failed, VideoTaskStatus.cancelled],
+    VideoTaskStatus.processing: [VideoTaskStatus.completed, VideoTaskStatus.failed, VideoTaskStatus.cancelled],
     VideoTaskStatus.completed: [],  # Terminal state
     VideoTaskStatus.failed: [],     # Terminal state
+    VideoTaskStatus.cancelled: [],  # Terminal state (BE-STG13-008)
 }
 
 
@@ -176,7 +177,7 @@ class VideoTaskService:
         query = client.table("video_tasks").select(
             "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
             "source_image_url, engine, params, progress, user_id, "
-            "processing_at, completed_at, failed_at, video_url_expires_at"
+            "processing_at, completed_at, failed_at, cancelled_at, video_url_expires_at"
         )
 
         # BE-AUTH-001: Explicit user_id filter (defense-in-depth, not relying solely on RLS)
@@ -386,6 +387,12 @@ class VideoTaskService:
                 return "videoUrl must be null for failed status"
             # progress: no constraint - keep at failure point for observability
 
+        elif status == VideoTaskStatus.cancelled:
+            if video_url is not None:
+                return "videoUrl must be null for cancelled status"
+            if error_message is not None:
+                return "errorMessage must be null for cancelled status"
+
         return None
 
     def update_task_status(
@@ -435,6 +442,8 @@ class VideoTaskService:
             update_data["completed_at"] = now.isoformat()
         elif status == VideoTaskStatus.failed:
             update_data["failed_at"] = now.isoformat()
+        elif status == VideoTaskStatus.cancelled:
+            update_data["cancelled_at"] = now.isoformat()
 
         response = service_client.table("video_tasks").update(update_data).eq("id", task_id).execute()
 
@@ -455,6 +464,32 @@ class VideoTaskService:
 
         # Fetch updated task
         return self.get_task_by_id(service_client, task_id)
+
+    def count_active_tasks(self, user_id: str) -> int:
+        """BE-STG13-008: Count active (queued or processing) tasks for a user."""
+        service_client = get_service_client()
+        response = (
+            service_client.table("video_tasks")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .in_("status", [VideoTaskStatus.queued.value, VideoTaskStatus.processing.value])
+            .execute()
+        )
+        return response.count or 0
+
+    def is_task_cancelled(self, task_id: str) -> bool:
+        """BE-STG13-008: Check if a task has been cancelled."""
+        service_client = get_service_client()
+        response = (
+            service_client.table("video_tasks")
+            .select("status")
+            .eq("id", task_id)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0].get("status") == VideoTaskStatus.cancelled.value
+        return False
 
     def delete_task(self, client: Client, task_id: str, user_id: str) -> bool:
         """
@@ -510,6 +545,7 @@ class VideoTaskService:
         processing_at = row.get("processing_at")
         completed_at = row.get("completed_at")
         failed_at = row.get("failed_at")
+        cancelled_at = row.get("cancelled_at")  # BE-STG13-008
 
         if isinstance(created_at, str):
             created_at = safe_parse_datetime(created_at)
@@ -521,6 +557,8 @@ class VideoTaskService:
             completed_at = safe_parse_datetime(completed_at)
         if isinstance(failed_at, str):
             failed_at = safe_parse_datetime(failed_at)
+        if isinstance(cancelled_at, str):
+            cancelled_at = safe_parse_datetime(cancelled_at)
 
         # BE-STG13-003: Licensing compliance - only final film output delivered
         video_url = row.get("video_url")
@@ -546,6 +584,7 @@ class VideoTaskService:
             processingAt=processing_at,
             completedAt=completed_at,
             failedAt=failed_at,
+            cancelledAt=cancelled_at,  # BE-STG13-008
             # BE-STG13-003: Licensing compliance
             deliveryType=delivery_type,
             videoUrlExpiresAt=video_url_expires_at,
@@ -556,15 +595,23 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
     """
     Background function to simulate task status transitions (for engine=mock only).
     queued -> processing (after 5s) -> completed (after 15s)
-    All transitions are persisted to database via service_client (bypasses RLS).
+    BE-STG13-008: Checks for cancellation during processing.
     """
     try:
         # Wait 5s then transition to processing
         await asyncio.sleep(5)
+        if service.is_task_cancelled(task_id):
+            logger.info(f"[{request_id}] Task {task_id} cancelled, stopping")
+            return
         service.update_task_status(task_id, VideoTaskStatus.processing, progress=10, request_id=request_id)
 
-        # Wait 15s then transition to completed
-        await asyncio.sleep(15)
+        # Wait 15s (check cancellation every 5s)
+        for _ in range(3):
+            await asyncio.sleep(5)
+            if service.is_task_cancelled(task_id):
+                logger.info(f"[{request_id}] Task {task_id} cancelled during processing")
+                return
+
         video_url = random.choice(DEMO_VIDEOS)
         service.update_task_status(
             task_id,
@@ -643,6 +690,11 @@ async def process_runway_task(
         while elapsed_time < RUNWAY_MAX_POLL_TIME:
             await asyncio.sleep(RUNWAY_POLL_INTERVAL)
             elapsed_time += RUNWAY_POLL_INTERVAL
+
+            # BE-STG13-008: Check cancellation before continuing
+            if service.is_task_cancelled(task_id):
+                logger.info(f"[{request_id}] Task {task_id} cancelled during Runway polling, stopping")
+                return
 
             runway_result = await get_task_status(runway_task_id, request_id)
             logger.info(

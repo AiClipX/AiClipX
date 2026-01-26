@@ -112,19 +112,30 @@ All API errors return a consistent JSON structure:
 
 ---
 
-### Rate Limiting
+### Rate Limiting & Concurrency
 
 | Code | HTTP | When | Example |
 |------|------|------|---------|
 | `RATE_LIMIT_EXCEEDED` | 429 | Too many requests per IP | Exceeded 10 req/min on POST |
+| `CONCURRENCY_LIMIT_EXCEEDED` | 429 | Too many active tasks per user | User has 3 queued/processing tasks |
 
-**Sample Response (429):**
+**Sample Response (429 - Rate Limit):**
 ```json
 {
   "code": "RATE_LIMIT_EXCEEDED",
   "message": "Too many requests. 10 per 1 minute",
   "requestId": "req_rate1",
   "details": {}
+}
+```
+
+**Sample Response (429 - Concurrency):**
+```json
+{
+  "code": "CONCURRENCY_LIMIT_EXCEEDED",
+  "message": "Maximum 3 concurrent tasks allowed. Wait for existing tasks to complete.",
+  "requestId": "req_conc1",
+  "details": {"activeCount": 3, "limit": 3}
 }
 ```
 
@@ -164,7 +175,7 @@ All API errors return a consistent JSON structure:
 |-----------|------|-------|---------|
 | `limit` | int | 1-100 | 20 |
 | `q` | string | max 100 characters | - |
-| `status` | enum | `pending\|queued\|processing\|completed\|failed` | - |
+| `status` | enum | `pending\|queued\|processing\|completed\|failed\|cancelled` | - |
 | `sort` | enum | `createdAt_desc\|createdAt_asc` | `createdAt_desc` |
 | `cursor` | string | valid base64 cursor | - |
 
@@ -183,6 +194,20 @@ All API errors return a consistent JSON structure:
 - Rate limits are per client IP (respects `X-Forwarded-For` header)
 - Exceeding limit returns `429 RATE_LIMIT_EXCEEDED`
 - Wait until the minute resets before retrying
+
+---
+
+## Concurrency Limits (BE-STG13-008)
+
+| Resource | Limit | Scope |
+|----------|-------|-------|
+| Active video tasks | 3 | Per user |
+
+**Notes:**
+- Active = tasks in `queued` or `processing` status
+- Exceeding limit returns `429 CONCURRENCY_LIMIT_EXCEEDED`
+- Use `POST /api/video-tasks/{id}/cancel` to free up slots
+- Cancelled/completed/failed tasks don't count against limit
 
 ---
 
