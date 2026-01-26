@@ -32,6 +32,7 @@ export interface TranslationKeys {
   'action.resume': string;
   
   // Video statuses
+  'status.draft': string;
   'status.queued': string;
   'status.processing': string;
   'status.completed': string;
@@ -234,6 +235,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'action.resume': 'Resume',
     
     // Video statuses
+    'status.draft': 'Draft',
     'status.queued': 'Queued',
     'status.processing': 'Processing',
     'status.completed': 'Completed',
@@ -435,6 +437,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'action.resume': '재개',
     
     // Video statuses
+    'status.draft': '초안',
     'status.queued': '대기중',
     'status.processing': '처리중',
     'status.completed': '완료',
@@ -636,6 +639,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'action.resume': '恢复',
     
     // Video statuses
+    'status.draft': '草稿',
     'status.queued': '排队中',
     'status.processing': '处理中',
     'status.completed': '已完成',
@@ -837,6 +841,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'action.resume': 'Tiếp tục',
     
     // Video statuses
+    'status.draft': 'Bản nháp',
     'status.queued': 'Đang chờ',
     'status.processing': 'Đang xử lý',
     'status.completed': 'Hoàn thành',

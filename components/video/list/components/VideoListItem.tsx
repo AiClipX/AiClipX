@@ -57,7 +57,7 @@ export function VideoListItem({ video, removeVideo }: Props) {
   const handleRetry = (e: React.MouseEvent) => {
     e.stopPropagation();
     // For now, show coming soon tooltip - backend support needed
-    showToast(t('videoList.retryComingSoon'), "info", 2000);
+    showToast(t('videoList.retryComingSoon'), "warning", 2000);
   };
 
   const handleDelete = async () => {
