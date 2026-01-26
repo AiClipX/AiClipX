@@ -9,7 +9,7 @@ import asyncio
 import base64
 import logging
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 from uuid import uuid4
 
@@ -176,7 +176,7 @@ class VideoTaskService:
         query = client.table("video_tasks").select(
             "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
             "source_image_url, engine, params, progress, user_id, "
-            "processing_at, completed_at, failed_at"
+            "processing_at, completed_at, failed_at, video_url_expires_at"
         )
 
         # BE-AUTH-001: Explicit user_id filter (defense-in-depth, not relying solely on RLS)
@@ -251,7 +251,7 @@ class VideoTaskService:
         query = client.table("video_tasks").select(
             "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
             "source_image_url, engine, params, progress, user_id, "
-            "processing_at, completed_at, failed_at"
+            "processing_at, completed_at, failed_at, video_url_expires_at"
         ).eq("id", task_id)
 
         # BE-AUTH-001: Explicit user_id filter (defense-in-depth)
@@ -394,12 +394,14 @@ class VideoTaskService:
         status: VideoTaskStatus,
         progress: Optional[int] = None,
         video_url: Optional[str] = None,
+        video_url_expires_at: Optional[datetime] = None,
         error_message: Optional[str] = None,
         request_id: str = "unknown",
     ) -> Optional[VideoTask]:
         """
         Update task status and related fields in database.
         BE-STG12-009: Set transition timestamps and log latency.
+        BE-STG13-003: Track video URL expiration for signed URLs.
 
         Uses service_client (bypasses RLS) for background job updates.
         """
@@ -420,6 +422,9 @@ class VideoTaskService:
             update_data["progress"] = progress
         if video_url is not None:
             update_data["video_url"] = video_url
+        # BE-STG13-003: Store signed URL expiration
+        if video_url_expires_at is not None:
+            update_data["video_url_expires_at"] = video_url_expires_at.isoformat()
         if error_message is not None:
             update_data["error_message"] = error_message
 
@@ -517,6 +522,13 @@ class VideoTaskService:
         if isinstance(failed_at, str):
             failed_at = safe_parse_datetime(failed_at)
 
+        # BE-STG13-003: Licensing compliance - only final film output delivered
+        video_url = row.get("video_url")
+        delivery_type = "final_film_only" if video_url else None
+        video_url_expires_at = row.get("video_url_expires_at")
+        if isinstance(video_url_expires_at, str):
+            video_url_expires_at = safe_parse_datetime(video_url_expires_at)
+
         return VideoTask(
             id=row["id"],
             title=row.get("title"),
@@ -524,7 +536,7 @@ class VideoTaskService:
             status=status,
             createdAt=created_at,
             updatedAt=updated_at,
-            videoUrl=row.get("video_url"),
+            videoUrl=video_url,
             errorMessage=row.get("error_message"),
             progress=progress,
             sourceImageUrl=row.get("source_image_url"),
@@ -534,6 +546,9 @@ class VideoTaskService:
             processingAt=processing_at,
             completedAt=completed_at,
             failedAt=failed_at,
+            # BE-STG13-003: Licensing compliance
+            deliveryType=delivery_type,
+            videoUrlExpiresAt=video_url_expires_at,
         )
 
 
@@ -668,15 +683,26 @@ async def process_runway_task(
         logger.info(f"[{request_id}] Downloaded video: {len(video_bytes)} bytes")
         service.update_task_status(task_id, VideoTaskStatus.processing, progress=95, request_id=request_id)
 
-        # Step 5: Upload to Supabase Storage
-        logger.info(f"[{request_id}] Uploading video to Supabase...")
+        # Step 5: Upload to Supabase Storage (BE-STG13-003: signed URL for compliance)
+        logger.info(f"[{request_id}] Uploading video to Supabase with signed URL...")
         upload_result = await upload_video(
             video_bytes=video_bytes,
             content_type="video/mp4",
             request_id=request_id,
+            use_signed_url=True,  # BE-STG13-003: Always use signed URLs
         )
         supabase_url = upload_result.url
-        logger.info(f"[{request_id}] Video uploaded to Supabase: {upload_result.path}")
+
+        # BE-STG13-003: Calculate URL expiration datetime
+        video_url_expires_at = None
+        if upload_result.expires_in:
+            video_url_expires_at = datetime.now(timezone.utc) + timedelta(seconds=upload_result.expires_in)
+            logger.info(
+                f"[{request_id}] Video uploaded with signed URL: path={upload_result.path}, "
+                f"expires_in={upload_result.expires_in}s, expires_at={video_url_expires_at.isoformat()}"
+            )
+        else:
+            logger.info(f"[{request_id}] Video uploaded to Supabase: {upload_result.path}")
 
         # Step 6: Transition to completed
         service.update_task_status(
@@ -684,6 +710,7 @@ async def process_runway_task(
             VideoTaskStatus.completed,
             progress=100,
             video_url=supabase_url,
+            video_url_expires_at=video_url_expires_at,
             request_id=request_id,
         )
         logger.info(f"[{request_id}] Task {task_id} completed with videoUrl: {supabase_url[:50]}...")

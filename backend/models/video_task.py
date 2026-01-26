@@ -17,6 +17,11 @@ class VideoEngine(str, Enum):
     mock = "mock"
 
 
+class DeliveryType(str, Enum):
+    """BE-STG13-003: Delivery type for licensing compliance."""
+    final_film_only = "final_film_only"  # Only final rendered video, no raw assets
+
+
 class DebugInfo(BaseModel):
     """Debug information for diagnostics (optional)."""
 
@@ -54,6 +59,16 @@ class VideoTask(BaseModel):
     completedAt: Optional[datetime] = None   # Set once when entering 'completed'
     failedAt: Optional[datetime] = None      # Set once when entering 'failed'
 
+    # BE-STG13-003: Licensing compliance fields
+    deliveryType: Optional[str] = Field(
+        default="final_film_only",
+        description="Delivery type: final_film_only (no raw assets exposed)"
+    )
+    videoUrlExpiresAt: Optional[datetime] = Field(
+        default=None,
+        description="Expiration time for signed video URL"
+    )
+
     # Optional diagnostic fields
     debug: Optional[DebugInfo] = None
 
@@ -74,6 +89,8 @@ class VideoTask(BaseModel):
                     "sourceImageUrl": None,
                     "engine": "mock",
                     "params": {"durationSec": 4, "ratio": "16:9"},
+                    "deliveryType": "final_film_only",
+                    "videoUrlExpiresAt": None,
                     "debug": {"requestId": "req_abc123"},
                 }
             ]

@@ -62,6 +62,16 @@ def get_outputs_bucket() -> str:
     return bucket
 
 
+def get_signed_url_expiry() -> int:
+    """
+    Get signed URL expiration time in seconds from environment.
+
+    BE-STG13-003: Configurable expiry for compliance.
+    Default: 86400 (24 hours)
+    """
+    return int(os.getenv("SIGNED_URL_EXPIRY_SECONDS", "86400"))
+
+
 def generate_tts_path() -> str:
     """
     Generate a unique path for TTS audio file.
@@ -191,17 +201,22 @@ async def upload_video(
     video_bytes: bytes,
     content_type: str = "video/mp4",
     request_id: str = "unknown",
+    use_signed_url: bool = True,
 ) -> UploadResult:
     """
     Upload video bytes to Supabase storage.
+
+    BE-STG13-003: Uses signed URLs by default for licensing compliance.
+    Only final film outputs are delivered; URLs expire after configurable time.
 
     Args:
         video_bytes: Video file content
         content_type: MIME type of the video
         request_id: Request ID for logging
+        use_signed_url: If True, always return signed URL (default for compliance)
 
     Returns:
-        UploadResult: Upload result with URL and metadata
+        UploadResult: Upload result with signed URL and expiration metadata
 
     Raises:
         SupabaseConfigError: If Supabase is not properly configured
@@ -210,9 +225,11 @@ async def upload_video(
     client = get_supabase_client()
     bucket = get_outputs_bucket()
     file_path = generate_video_path()
+    expires_in = get_signed_url_expiry()
 
     logger.info(
-        f"[{request_id}] Supabase video upload: bucket={bucket}, path={file_path}, size={len(video_bytes)}"
+        f"[{request_id}] Supabase video upload: bucket={bucket}, path={file_path}, "
+        f"size={len(video_bytes)}, signed_url={use_signed_url}"
     )
 
     try:
@@ -237,12 +254,44 @@ async def upload_video(
         logger.error(f"[{request_id}] Supabase video upload failed: {e}")
         raise SupabaseUploadError(f"Failed to upload video: {e}")
 
-    # Get public URL
+    # BE-STG13-003: Always use signed URLs for compliance
+    if use_signed_url:
+        try:
+            signed_response = client.storage.from_(bucket).create_signed_url(
+                file_path, expires_in
+            )
+
+            signed_url = signed_response.get("signedURL") or signed_response.get(
+                "signedUrl"
+            )
+            if not signed_url:
+                raise SupabaseUploadError("Failed to create signed URL for video")
+
+            logger.info(
+                f"[{request_id}] Supabase video signed URL created: "
+                f"path={file_path}, expires_in={expires_in}s"
+            )
+
+            return UploadResult(
+                url=signed_url,
+                path=file_path,
+                bucket=bucket,
+                bytes=len(video_bytes),
+                signed_url=signed_url,
+                expires_in=expires_in,
+            )
+        except Exception as e:
+            if isinstance(e, SupabaseUploadError):
+                raise
+            logger.error(f"[{request_id}] Failed to create signed URL for video: {e}")
+            raise SupabaseUploadError(f"Failed to create signed URL: {e}")
+
+    # Fallback to public URL (only if explicitly requested)
     try:
         public_url_response = client.storage.from_(bucket).get_public_url(file_path)
         public_url = public_url_response
 
-        logger.info(f"[{request_id}] Supabase video upload success: {file_path}")
+        logger.info(f"[{request_id}] Supabase video upload success (public): {file_path}")
 
         return UploadResult(
             url=public_url,
