@@ -103,15 +103,20 @@ export class PublishManager {
       .replace('{prompt}', videoPrompt);
     
     // Apply platform-specific description modifications
-    if (platform && template.platformSpecific?.[platform]?.descriptionPrefix) {
-      description = template.platformSpecific[platform].descriptionPrefix + description;
+    if (platform && template.platformSpecific?.[platform]) {
+      const platformConfig = template.platformSpecific[platform] as { descriptionPrefix?: string };
+      if (platformConfig.descriptionPrefix) {
+        description = platformConfig.descriptionPrefix + description;
+      }
     }
     
     // Select hashtags based on platform limits
     let hashtags = [...template.hashtags];
-    if (platform && template.platformSpecific?.[platform]?.hashtagLimit) {
-      const limit = template.platformSpecific[platform].hashtagLimit!;
-      hashtags = hashtags.slice(0, limit);
+    if (platform && template.platformSpecific?.[platform]) {
+      const platformConfig = template.platformSpecific[platform] as { hashtagLimit?: number };
+      if (platformConfig.hashtagLimit) {
+        hashtags = hashtags.slice(0, platformConfig.hashtagLimit);
+      }
     }
     
     return {
@@ -205,7 +210,7 @@ export class PublishManager {
         return { success: false, error: 'Unable to read video stream' };
       }
       
-      const chunks: Uint8Array[] = [];
+      const chunks: BlobPart[] = [];
       
       while (true) {
         const { done, value } = await reader.read();

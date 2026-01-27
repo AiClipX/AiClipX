@@ -7,7 +7,7 @@ import { useLanguage } from '../../../../contexts/LanguageContext';
 import { CapabilityGuard } from '../../../../components/common/CapabilityGuard';
 import { PublishPanel } from '../../../../components/video/publish/PublishPanel';
 import { VideoDetailSkeleton } from '../../../../components/video/detail/components/VideoDetailSkeleton';
-import { NotFound } from '../../../../components/video/detail/components/NotFound';
+import NotFound from '../../../../components/video/detail/components/NotFound';
 import { LanguageSelector } from '../../../../components/common/LanguageSelector';
 
 export default function PublishPage() {
