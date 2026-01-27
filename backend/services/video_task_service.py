@@ -32,6 +32,7 @@ from services.supabase_storage import (
     SupabaseConfigError,
 )
 from services.webhook import webhook_service
+from services.audit import audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -462,6 +463,17 @@ class VideoTaskService:
             f"[{request_id}] STATUS_CHANGE task={task_id} "
             f"{old_status.value}→{status.value} latency={latency_ms}ms"
         )
+
+        # BE-STG13-012: Emit audit log for status changes (processing/completed/failed)
+        if status in [VideoTaskStatus.processing, VideoTaskStatus.completed, VideoTaskStatus.failed]:
+            audit_service.emit(
+                action=f"task.{status.value}",
+                entity_type="video_task",
+                entity_id=task_id,
+                actor_user_id=None,  # System action (background job)
+                request_id=request_id,
+                meta={"status_from": old_status.value, "status_to": status.value},
+            )
 
         # Fetch updated task
         return self.get_task_by_id(service_client, task_id)

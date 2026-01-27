@@ -31,12 +31,21 @@ from services.ratelimit import limiter, RATE_LIMIT_VIDEO_CREATE, MAX_CONCURRENT_
 from services.capabilities import capability_service
 from services.webhook import webhook_service
 from services.error_response import error_response
+from services.audit import audit_service
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/video-tasks", tags=["Video Tasks"])
+
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP from request (handles proxies)."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _check_task_ownership(task_id: str, user_id: str, request_id: str):
@@ -371,6 +380,17 @@ async def create_video_task(
     # BE-STG13-009: Check if runway engine is available
     if request_body.engine == VideoEngine.runway and not capability_service.engine_runway_enabled:
         logger.warning(f"[{request_id}] SERVICE_UNAVAILABLE: Runway engine disabled")
+        # BE-STG13-012: Emit audit log for capability degradation
+        audit_service.emit(
+            action="capability.disabled",
+            entity_type="feature",
+            entity_id="engineRunway",
+            actor_user_id=user.id,
+            request_id=request_id,
+            ip=get_client_ip(request),
+            user_agent=request.headers.get("User-Agent"),
+            meta={"feature": "engineRunway", "reason": "engine_unavailable"},
+        )
         return error_response(
             status_code=503,
             code="SERVICE_UNAVAILABLE",
@@ -440,6 +460,18 @@ async def create_video_task(
         params=params_dict,
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value} for user={user.id[:8]}...")
+
+    # BE-STG13-012: Emit audit log for task creation
+    audit_service.emit(
+        action="task.create",
+        entity_type="video_task",
+        entity_id=task.id,
+        actor_user_id=user.id,
+        request_id=request_id,
+        ip=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent"),
+        meta={"engine": task.engine, "title": task.title[:50] if task.title else None},
+    )
 
     # BE-STG13-010: Emit created webhook (fire-and-forget in background)
     asyncio.create_task(
@@ -842,6 +874,18 @@ async def cancel_video_task(
     )
 
     logger.info(f"[{request_id}] Task {task_id} cancelled | user={user.id[:8]}...")
+
+    # BE-STG13-012: Emit audit log for task cancellation
+    audit_service.emit(
+        action="task.cancel",
+        entity_type="video_task",
+        entity_id=task_id,
+        actor_user_id=user.id,
+        request_id=request_id,
+        ip=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent"),
+        meta={"status_from": task.status.value, "status_to": "cancelled"},
+    )
 
     # BE-STG13-010: Emit cancelled webhook (fire-and-forget in background)
     if updated_task:

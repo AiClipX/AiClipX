@@ -17,8 +17,17 @@ from pydantic import BaseModel, EmailStr, Field
 from services.supabase_client import get_service_client
 from services.auth import get_current_user, AuthUser
 from services.ratelimit import limiter, RATE_LIMIT_AUTH_SIGNIN
+from services.audit import audit_service
 
 logger = logging.getLogger(__name__)
+
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP from request (handles proxies)."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -216,6 +225,17 @@ async def signin(request: Request, body: SignInRequest):
             )
 
         logger.info(f"[{request_id}] Signin successful: user_id={response.user.id[:8]}...")
+
+        # BE-STG13-012: Emit audit log for successful login
+        audit_service.emit(
+            action="auth.login",
+            entity_type="session",
+            entity_id=response.session.access_token[:16] + "...",  # Truncated token as session ID
+            actor_user_id=response.user.id,
+            request_id=request_id,
+            ip=get_client_ip(request),
+            user_agent=request.headers.get("User-Agent"),
+        )
 
         return {
             "access_token": response.session.access_token,
