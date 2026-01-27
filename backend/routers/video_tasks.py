@@ -29,6 +29,7 @@ from services.video_task_service import (
 )
 from services.ratelimit import limiter, RATE_LIMIT_VIDEO_CREATE, MAX_CONCURRENT_TASKS_PER_USER
 from services.capabilities import capability_service
+from services.webhook import webhook_service
 from services.error_response import error_response
 
 # Setup logging
@@ -440,6 +441,19 @@ async def create_video_task(
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value} for user={user.id[:8]}...")
 
+    # BE-STG13-010: Emit created webhook (fire-and-forget in background)
+    asyncio.create_task(
+        webhook_service.emit_event(
+            event_type="video_task.created",
+            task_id=task.id,
+            task_status=task.status.value,
+            task_title=task.title or "",
+            task_engine=task.engine or request_body.engine.value,
+            task_created_at=task.createdAt,
+            request_id=request_id,
+        )
+    )
+
     # Store idempotency key if provided (BE-STG12-004: persistent via Supabase)
     if idempotency_key:
         payload = {
@@ -828,6 +842,20 @@ async def cancel_video_task(
     )
 
     logger.info(f"[{request_id}] Task {task_id} cancelled | user={user.id[:8]}...")
+
+    # BE-STG13-010: Emit cancelled webhook (fire-and-forget in background)
+    if updated_task:
+        asyncio.create_task(
+            webhook_service.emit_event(
+                event_type="video_task.cancelled",
+                task_id=updated_task.id,
+                task_status=updated_task.status.value,
+                task_title=updated_task.title or "",
+                task_engine=updated_task.engine or "",
+                task_created_at=updated_task.createdAt,
+                request_id=request_id,
+            )
+        )
 
     # Add debug info
     updated_task.debug = DebugInfo(requestId=request_id)
