@@ -243,18 +243,27 @@ export function VideoListContainer() {
           <EmptyState 
             showFiltersEmpty={false}
             type="error"
-            errorMessage={error?.message}
+            errorMessage={error?.message || t('error.serverError')}
             requestId={error?.requestId}
             onRetry={handleRefresh}
+            loading={loading}
           />
         )}
         
         {stableEmptyState === 'filters' && (
-          <EmptyState showFiltersEmpty={true} />
+          <EmptyState 
+            showFiltersEmpty={true} 
+            type="no-results"
+            loading={loading}
+          />
         )}
 
         {stableEmptyState === 'notasks' && (
-          <EmptyState showFiltersEmpty={false} />
+          <EmptyState 
+            showFiltersEmpty={false} 
+            type="no-videos"
+            loading={loading}
+          />
         )}
 
         {stableEmptyState === 'hasdata' && (

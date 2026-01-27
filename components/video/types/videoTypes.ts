@@ -3,7 +3,8 @@ export type VideoStatus =
   | "queued"
   | "processing"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface Video {
   id: string;
@@ -51,5 +52,9 @@ export const VIDEO_STATUS_CONFIG: Record<
   failed: {
     label: "Failed",
     className: "text-red-400",
+  },
+  cancelled: {
+    label: "Cancelled",
+    className: "text-gray-400",
   },
 };

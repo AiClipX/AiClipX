@@ -201,6 +201,42 @@ export interface TranslationKeys {
   'language.ko': string;
   'language.zh': string;
   'language.vi': string;
+
+  // Capabilities
+  'capability.engineDisabled': string;
+  'capability.downloadDisabled': string;
+  'capability.cancelDisabled': string;
+  'capability.featureUnavailable': string;
+
+  // Publish system
+  'publish.title': string;
+  'publish.description': string;
+  'publish.regionSelector': string;
+  'publish.downloadFinalFilm': string;
+  'publish.copyShareLink': string;
+  'publish.finalFilmOnly': string;
+  'publish.finalFilmDescription': string;
+  'publish.downloadDisabledTitle': string;
+  'publish.downloadDisabledDescription': string;
+  'publish.videoNotReady': string;
+  'publish.videoNotReadyDescription': string;
+
+  // Publish
+  'publish.title': string;
+  'publish.description': string;
+  'publish.openPage': string;
+  'publish.showPanel': string;
+  'publish.hidePanel': string;
+  'publish.regionSelector': string;
+  'publish.titleTemplate': string;
+  'publish.descriptionTemplate': string;
+  'publish.hashtags': string;
+  'publish.downloadFinal': string;
+  'publish.copyLink': string;
+  'publish.finalOutputOnly': string;
+  'publish.finalOutputDescription': string;
+  'publish.videoNotReady': string;
+  'publish.videoAccessIssue': string;
 }
 
 const translations: Record<SupportedLanguage, TranslationKeys> = {
@@ -404,6 +440,42 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'language.ko': '한국어',
     'language.zh': '中文',
     'language.vi': 'Tiếng Việt',
+
+    // Capabilities
+    'capability.engineDisabled': 'Video creation is currently disabled. Please contact support if you need access.',
+    'capability.downloadDisabled': 'Video downloads are currently disabled. You can copy the video URL instead.',
+    'capability.cancelDisabled': 'Cancel actions are currently disabled.',
+    'capability.featureUnavailable': 'This feature is currently unavailable.',
+
+    // Publish system
+    'publish.title': 'Publish & Share',
+    'publish.description': 'Download your video and get optimized metadata for social platforms',
+    'publish.regionSelector': 'Target Region & Language',
+    'publish.downloadFinalFilm': 'Download Final Film',
+    'publish.copyShareLink': 'Copy Share Link',
+    'publish.finalFilmOnly': 'Final Film Output Only',
+    'publish.finalFilmDescription': 'This download provides the final rendered video file only. No raw assets, project files, or source materials are included. The video is ready for direct upload to social platforms.',
+    'publish.downloadDisabledTitle': 'Download Disabled',
+    'publish.downloadDisabledDescription': 'Video downloads are currently disabled. You can still copy the share link and metadata templates for manual use.',
+    'publish.videoNotReady': 'Video Not Ready for Publishing',
+    'publish.videoNotReadyDescription': 'This video is currently {status} and cannot be published yet. Please wait for the video to complete processing.',
+
+    // Publish
+    'publish.title': 'Publish & Share',
+    'publish.description': 'Export your video for different platforms and regions',
+    'publish.openPage': 'Open Publish Page',
+    'publish.showPanel': 'Show Publish Panel',
+    'publish.hidePanel': 'Hide Publish Panel',
+    'publish.regionSelector': 'Target Region & Language',
+    'publish.titleTemplate': 'Title Template',
+    'publish.descriptionTemplate': 'Description Template',
+    'publish.hashtags': 'Recommended Hashtags',
+    'publish.downloadFinal': 'Download Final Film',
+    'publish.copyLink': 'Copy Share Link',
+    'publish.finalOutputOnly': 'Final Film Output Only',
+    'publish.finalOutputDescription': 'This download provides the final rendered video file only. No raw assets, project files, or source materials are included.',
+    'publish.videoNotReady': 'Video Not Ready for Publishing',
+    'publish.videoAccessIssue': 'Video Access Issue',
   },
   
   ko: {
@@ -606,6 +678,42 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'language.ko': '한국어',
     'language.zh': '中文',
     'language.vi': 'Tiếng Việt',
+
+    // Capabilities
+    'capability.engineDisabled': '비디오 생성이 현재 비활성화되어 있습니다. 액세스가 필요하면 지원팀에 문의하세요.',
+    'capability.downloadDisabled': '비디오 다운로드가 현재 비활성화되어 있습니다. 대신 비디오 URL을 복사할 수 있습니다.',
+    'capability.cancelDisabled': '취소 작업이 현재 비활성화되어 있습니다.',
+    'capability.featureUnavailable': '이 기능은 현재 사용할 수 없습니다.',
+
+    // Publish system
+    'publish.title': '게시 및 공유',
+    'publish.description': '비디오를 다운로드하고 소셜 플랫폼용 최적화된 메타데이터를 받으세요',
+    'publish.regionSelector': '대상 지역 및 언어',
+    'publish.downloadFinalFilm': '최종 영상 다운로드',
+    'publish.copyShareLink': '공유 링크 복사',
+    'publish.finalFilmOnly': '최종 영상만 제공',
+    'publish.finalFilmDescription': '이 다운로드는 최종 렌더링된 비디오 파일만 제공합니다. 원본 에셋, 프로젝트 파일 또는 소스 자료는 포함되지 않습니다. 비디오는 소셜 플랫폼에 직접 업로드할 수 있습니다.',
+    'publish.downloadDisabledTitle': '다운로드 비활성화',
+    'publish.downloadDisabledDescription': '비디오 다운로드가 현재 비활성화되어 있습니다. 공유 링크와 메타데이터 템플릿은 여전히 복사할 수 있습니다.',
+    'publish.videoNotReady': '게시할 수 없는 비디오',
+    'publish.videoNotReadyDescription': '이 비디오는 현재 {status} 상태이며 아직 게시할 수 없습니다. 비디오 처리가 완료될 때까지 기다려주세요.',
+
+    // Publish
+    'publish.title': '게시 및 공유',
+    'publish.description': '다양한 플랫폼과 지역에 맞게 비디오를 내보내세요',
+    'publish.openPage': '게시 페이지 열기',
+    'publish.showPanel': '게시 패널 표시',
+    'publish.hidePanel': '게시 패널 숨기기',
+    'publish.regionSelector': '대상 지역 및 언어',
+    'publish.titleTemplate': '제목 템플릿',
+    'publish.descriptionTemplate': '설명 템플릿',
+    'publish.hashtags': '추천 해시태그',
+    'publish.downloadFinal': '최종 영상 다운로드',
+    'publish.copyLink': '공유 링크 복사',
+    'publish.finalOutputOnly': '최종 영상 출력만',
+    'publish.finalOutputDescription': '이 다운로드는 최종 렌더링된 비디오 파일만 제공합니다. 원본 에셋, 프로젝트 파일 또는 소스 자료는 포함되지 않습니다.',
+    'publish.videoNotReady': '비디오가 게시 준비되지 않음',
+    'publish.videoAccessIssue': '비디오 액세스 문제',
   },
   
   zh: {
@@ -808,6 +916,42 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'language.ko': '한국어',
     'language.zh': '中文',
     'language.vi': 'Tiếng Việt',
+
+    // Capabilities
+    'capability.engineDisabled': '视频创建当前已禁用。如需访问权限，请联系支持团队。',
+    'capability.downloadDisabled': '视频下载当前已禁用。您可以复制视频URL。',
+    'capability.cancelDisabled': '取消操作当前已禁用。',
+    'capability.featureUnavailable': '此功能当前不可用。',
+
+    // Publish system
+    'publish.title': '发布和分享',
+    'publish.description': '下载您的视频并获取社交平台的优化元数据',
+    'publish.regionSelector': '目标地区和语言',
+    'publish.downloadFinalFilm': '下载最终影片',
+    'publish.copyShareLink': '复制分享链接',
+    'publish.finalFilmOnly': '仅最终影片输出',
+    'publish.finalFilmDescription': '此下载仅提供最终渲染的视频文件。不包括原始资产、项目文件或源材料。视频可直接上传到社交平台。',
+    'publish.downloadDisabledTitle': '下载已禁用',
+    'publish.downloadDisabledDescription': '视频下载当前已禁用。您仍可以复制分享链接和元数据模板供手动使用。',
+    'publish.videoNotReady': '视频尚未准备好发布',
+    'publish.videoNotReadyDescription': '此视频当前状态为{status}，尚无法发布。请等待视频处理完成。',
+
+    // Publish
+    'publish.title': '发布和分享',
+    'publish.description': '为不同平台和地区导出您的视频',
+    'publish.openPage': '打开发布页面',
+    'publish.showPanel': '显示发布面板',
+    'publish.hidePanel': '隐藏发布面板',
+    'publish.regionSelector': '目标地区和语言',
+    'publish.titleTemplate': '标题模板',
+    'publish.descriptionTemplate': '描述模板',
+    'publish.hashtags': '推荐标签',
+    'publish.downloadFinal': '下载最终视频',
+    'publish.copyLink': '复制分享链接',
+    'publish.finalOutputOnly': '仅最终视频输出',
+    'publish.finalOutputDescription': '此下载仅提供最终渲染的视频文件。不包含原始素材、项目文件或源材料。',
+    'publish.videoNotReady': '视频未准备好发布',
+    'publish.videoAccessIssue': '视频访问问题',
   },
   
   vi: {
@@ -1010,6 +1154,42 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'language.ko': '한국어',
     'language.zh': '中文',
     'language.vi': 'Tiếng Việt',
+
+    // Capabilities
+    'capability.engineDisabled': 'Tạo video hiện đang bị vô hiệu hóa. Vui lòng liên hệ hỗ trợ nếu bạn cần quyền truy cập.',
+    'capability.downloadDisabled': 'Tải xuống video hiện đang bị vô hiệu hóa. Bạn có thể sao chép URL video thay thế.',
+    'capability.cancelDisabled': 'Các hành động hủy hiện đang bị vô hiệu hóa.',
+    'capability.featureUnavailable': 'Tính năng này hiện không khả dụng.',
+
+    // Publish system
+    'publish.title': 'Xuất bản & Chia sẻ',
+    'publish.description': 'Tải xuống video của bạn và nhận metadata được tối ưu hóa cho các nền tảng xã hội',
+    'publish.regionSelector': 'Khu vực & Ngôn ngữ mục tiêu',
+    'publish.downloadFinalFilm': 'Tải xuống phim cuối cùng',
+    'publish.copyShareLink': 'Sao chép liên kết chia sẻ',
+    'publish.finalFilmOnly': 'Chỉ đầu ra phim cuối cùng',
+    'publish.finalFilmDescription': 'Bản tải xuống này chỉ cung cấp tệp video được render cuối cùng. Không bao gồm tài sản thô, tệp dự án hoặc tài liệu nguồn. Video đã sẵn sàng để tải lên trực tiếp lên các nền tảng xã hội.',
+    'publish.downloadDisabledTitle': 'Tải xuống bị vô hiệu hóa',
+    'publish.downloadDisabledDescription': 'Tải xuống video hiện đang bị vô hiệu hóa. Bạn vẫn có thể sao chép liên kết chia sẻ và các mẫu metadata để sử dụng thủ công.',
+    'publish.videoNotReady': 'Video chưa sẵn sàng để xuất bản',
+    'publish.videoNotReadyDescription': 'Video này hiện đang ở trạng thái {status} và chưa thể xuất bản. Vui lòng đợi video hoàn thành xử lý.',
+
+    // Publish
+    'publish.title': 'Xuất bản và Chia sẻ',
+    'publish.description': 'Xuất video của bạn cho các nền tảng và khu vực khác nhau',
+    'publish.openPage': 'Mở Trang Xuất bản',
+    'publish.showPanel': 'Hiển thị Bảng Xuất bản',
+    'publish.hidePanel': 'Ẩn Bảng Xuất bản',
+    'publish.regionSelector': 'Khu vực và Ngôn ngữ Mục tiêu',
+    'publish.titleTemplate': 'Mẫu Tiêu đề',
+    'publish.descriptionTemplate': 'Mẫu Mô tả',
+    'publish.hashtags': 'Hashtag Được Đề xuất',
+    'publish.downloadFinal': 'Tải xuống Video Cuối cùng',
+    'publish.copyLink': 'Sao chép Liên kết Chia sẻ',
+    'publish.finalOutputOnly': 'Chỉ Đầu ra Video Cuối cùng',
+    'publish.finalOutputDescription': 'Tải xuống này chỉ cung cấp tệp video được render cuối cùng. Không bao gồm tài sản thô, tệp dự án hoặc tài liệu nguồn.',
+    'publish.videoNotReady': 'Video Chưa Sẵn sàng để Xuất bản',
+    'publish.videoAccessIssue': 'Vấn đề Truy cập Video',
   },
 };
 

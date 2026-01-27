@@ -5,6 +5,9 @@ import { useCreateVideo } from "../hooks/useCreateVideo";
 import { Video } from "../../types/videoTypes";
 import { useAuth } from "../../../../contexts/AuthContext";
 import { useLanguage } from "../../../../contexts/LanguageContext";
+import { useCapabilityCheck } from "../../../common/CapabilityGuard";
+import { EngineDisabledBanner } from "../../../common/CapabilityBanner";
+import { handleError } from "../../../../lib/globalErrorHandler";
 
 // Generate UUID v4
 const generateUUID = (): string => {
@@ -49,6 +52,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   const { mutate, isPending } = useCreateVideo();
   const { token } = useAuth();
   const { t } = useLanguage();
+  const { canCreateVideo, isFeatureEnabled } = useCapabilityCheck();
   
   // Double-submit prevention with ref
   const isSubmittingRef = useRef(false);
@@ -315,15 +319,14 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         // Reset submitting flag
         isSubmittingRef.current = false;
         
-        // Extract error details
-        const requestId = error?.requestId || 
-                         error?.response?.data?.requestId || 
-                         error?.response?.headers?.["x-request-id"] ||
-                         "unknown";
+        // Use global error handler
+        const errorInfo = handleError(error, 'CreateVideoModal');
         
-        const status = error?.response?.status || error?.status || null;
-        const errorCode = error?.response?.data?.code || error?.code || null;
-        const errorMessage = error?.message || error?.response?.data?.message || "Unknown error";
+        // Extract error details for debug panel
+        const requestId = errorInfo.requestId || "unknown";
+        const status = errorInfo.status || null;
+        const errorCode = errorInfo.code || null;
+        const errorMessage = errorInfo.message || "Unknown error";
 
         // Show debug info on error
         setDebugInfo({
@@ -340,9 +343,8 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         });
         setShowDebug(true);
 
-        // Show friendly error message based on status code
-        const friendlyMessage = getFriendlyErrorMessage(status, errorMessage, requestId);
-        showToast(friendlyMessage, "error", 5000);
+        // Error is already handled by global error handler, just show toast
+        showToast(errorInfo.message, "error", 5000);
       },
     });
   };
@@ -352,9 +354,14 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-neutral-900 rounded-lg p-6 w-full max-w-2xl text-white max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-semibold mb-4">{t('create.createFilm')}</h2>
+        <h2 className="text-xl font-semibold mb-4">{t('create.title')}</h2>
 
         <div className="space-y-4">
+          {/* Capability Banner */}
+          {!canCreateVideo && (
+            <EngineDisabledBanner />
+          )}
+
           {/* Title */}
           <div>
             <label className="block text-sm font-medium mb-1">
@@ -369,7 +376,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                   ? 'border-red-500 bg-red-900/20' 
                   : 'border-neutral-700'
               }`}
-              placeholder={t('create.form.titlePlaceholder')}
+              placeholder="Enter video title..."
               value={title}
               maxLength={MAX_TITLE_LENGTH}
               onChange={(e) => {
@@ -401,7 +408,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                   : 'border-neutral-700'
               }`}
               rows={3}
-              placeholder={t('create.form.promptPlaceholder')}
+              placeholder="Describe the video you want to create..."
               value={prompt}
               maxLength={MAX_PROMPT_LENGTH}
               onChange={(e) => {
@@ -428,8 +435,15 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
               disabled={isPending || isSubmittingRef.current}
             >
               <option value="mock">{t('create.form.mockEngine')}</option>
-              <option value="runway">{t('create.form.runwayEngine')}</option>
+              <option value="runway" disabled={!isFeatureEnabled('runway')}>
+                {t('create.form.runwayEngine')} {!isFeatureEnabled('runway') && '(Disabled)'}
+              </option>
             </select>
+            {!isFeatureEnabled('runway') && engine === 'runway' && (
+              <div className="mt-2">
+                <EngineDisabledBanner />
+              </div>
+            )}
           </div>
 
           {/* Params JSON */}
@@ -580,13 +594,15 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
             className="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[140px] justify-center"
             onClick={() => handleSubmit(false)}
             disabled={
+              !canCreateVideo ||
               isPending || 
               isSubmittingRef.current || 
               !title.trim() || 
               !prompt.trim() || 
               !!validationErrors.params ||
               title.length > MAX_TITLE_LENGTH ||
-              prompt.length > MAX_PROMPT_LENGTH
+              prompt.length > MAX_PROMPT_LENGTH ||
+              (engine === 'runway' && !isFeatureEnabled('runway'))
             }
           >
             {(isPending || isSubmittingRef.current) && (
@@ -607,7 +623,7 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                 />
               </svg>
             )}
-            {(isPending || isSubmittingRef.current) ? t('create.form.creating') : t('create.form.createAndView')}
+            {(isPending || isSubmittingRef.current) ? t('create.form.creating') : t('action.create')}
           </button>
         </div>
       </div>

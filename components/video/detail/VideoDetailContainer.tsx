@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useVideoDetail } from "./hooks/useVideoDetail";
 import { useAuth } from "../../../contexts/AuthContext";
 import { useLanguage } from "../../../contexts/LanguageContext";
+import { useCapabilityCheck } from "../../common/CapabilityGuard";
 import StatusBadge from "./components/StatusBadge";
 import VideoPlayer from "./components/VideoPlayer";
 import ErrorDisplay from "./components/ErrorDisplay";
@@ -12,7 +13,8 @@ import { VideoActions } from "./components/VideoActions";
 import { BackButton } from "./components/BackButton";
 import { VideoDetailSkeleton } from "./components/VideoDetailSkeleton";
 import { LanguageSelector } from "../../common/LanguageSelector";
-import { ArrowPathIcon, ClipboardDocumentIcon, CheckIcon, PlayIcon, PauseIcon } from '@heroicons/react/24/outline';
+import { PublishPanel } from "../publish/PublishPanel";
+import { ArrowPathIcon, ClipboardDocumentIcon, CheckIcon, PlayIcon, PauseIcon, ShareIcon, GlobeAltIcon } from '@heroicons/react/24/outline';
 
 interface Props {
   id: string;
@@ -20,10 +22,12 @@ interface Props {
 
 export function VideoDetailContainer({ id }: Props) {
   const router = useRouter();
-  const { video, loading, notFound, error, refetch } = useVideoDetail(id);
+  const { video, loading, notFound, error, requestId, refetch, isPolling } = useVideoDetail(id);
   const { logout, user } = useAuth();
   const { t } = useLanguage();
+  const { canDownloadVideo, canPublish } = useCapabilityCheck();
   const [copiedItems, setCopiedItems] = useState<Record<string, boolean>>({});
+  const [showPublishPanel, setShowPublishPanel] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
 
   // Auto-refresh for processing/queued videos with smart intervals
@@ -266,13 +270,46 @@ export function VideoDetailContainer({ id }: Props) {
             {t('error.failedToLoadVideo')}
           </h2>
           <p className="text-red-700 mb-4">{error}</p>
-          <button
-            onClick={refetch}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
-          >
-            <ArrowPathIcon className="w-5 h-5" />
-            <span>{t('action.retry')}</span>
-          </button>
+          
+          {requestId && (
+            <div className="bg-red-100 border border-red-300 rounded p-3 mb-4">
+              <p className="text-sm font-medium text-red-800 mb-1">
+                {t('error.requestId')}
+              </p>
+              <p className="text-sm font-mono text-red-700 break-all">
+                {requestId}
+              </p>
+            </div>
+          )}
+          
+          <div className="flex items-center gap-3">
+            <button
+              onClick={refetch}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+            >
+              {loading ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <ArrowPathIcon className="w-5 h-5" />
+              )}
+              <span>{t('action.retry')}</span>
+            </button>
+            
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+            >
+              {t('action.back')} to Dashboard
+            </button>
+          </div>
+          
+          {isPolling && (
+            <div className="mt-4 flex items-center gap-2 text-sm text-red-600">
+              <div className="w-3 h-3 border border-red-600 border-t-transparent rounded-full animate-spin"></div>
+              <span>Retrying automatically...</span>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -458,6 +495,42 @@ export function VideoDetailContainer({ id }: Props) {
 
         {/* Video Actions */}
         <VideoActions video={video} onRefresh={refetch} />
+
+        {/* Publish Button - only for completed videos and if capability enabled */}
+        {video.status === 'completed' && video.videoUrl && canPublish && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {t('publish.title')}
+              </h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => router.push(`/dashboard/videos/${video.id}/publish`)}
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm"
+                >
+                  <ShareIcon className="w-4 h-4" />
+                  <span>Full Page</span>
+                </button>
+                <button
+                  onClick={() => setShowPublishPanel(!showPublishPanel)}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                >
+                  <GlobeAltIcon className="w-5 h-5" />
+                  <span>{showPublishPanel ? 'Hide' : 'Show'} Panel</span>
+                </button>
+              </div>
+            </div>
+            
+            {showPublishPanel && (
+              <div className="animate-in slide-in-from-top-2 duration-300">
+                <PublishPanel 
+                  video={video} 
+                  onClose={() => setShowPublishPanel(false)}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

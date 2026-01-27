@@ -50,19 +50,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // If successful, user state is already set by fetchMe
         } catch (err) {
           console.warn("Session validation failed:", err);
-          // Invalid token - clear it and redirect if on protected page
+          // Invalid token - clear it but don't redirect here
+          // Let _app.js handle the redirect logic
           clearAuthState();
-          
-          // Check if we're on a protected page
-          const isProtectedPage = window.location.pathname.startsWith("/dashboard") || 
-                                  window.location.pathname === "/upload";
-          
-          if (isProtectedPage) {
-            // Don't show toast during initialization to avoid flash
-            setTimeout(() => {
-              router.push("/login");
-            }, 100);
-          }
         } finally {
           setValidating(false);
         }
