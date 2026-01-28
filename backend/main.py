@@ -52,8 +52,27 @@ async def lifespan(app: FastAPI):
     await close_http_client()
     await close_db()
 
-# Setup logging
+# Setup logging with token masking filter
+class TokenMaskingFilter(logging.Filter):
+    """Filter to mask JWT tokens in log messages (security: BE-STG13-015)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            # Mask JWT tokens in URLs (token=eyJ...)
+            import re
+            record.msg = re.sub(
+                r'(token=)eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+',
+                r'\1[MASKED]',
+                record.msg
+            )
+        return True
+
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+
+# Apply token masking filter to uvicorn access logger
+for logger_name in ["uvicorn.access", "uvicorn.error", ""]:
+    logging.getLogger(logger_name).addFilter(TokenMaskingFilter())
+
 logger = logging.getLogger(__name__)
 
 VERSION = "0.5.0"
