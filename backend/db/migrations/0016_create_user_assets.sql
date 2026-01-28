@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS user_assets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
-    task_id UUID REFERENCES video_tasks(id) ON DELETE SET NULL,
+    task_id VARCHAR(50) REFERENCES video_tasks(id) ON DELETE SET NULL,
 
     -- File metadata
     filename VARCHAR(255) NOT NULL,
