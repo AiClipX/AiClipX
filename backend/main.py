@@ -26,9 +26,10 @@ from services.ratelimit import limiter
 
 from database import close_db, init_db, check_db_health
 from generate_video import generate_video
-from routers import video_tasks, tts, auth, debug, capabilities, audit, assets
+from routers import video_tasks, tts, auth, debug, capabilities, audit, assets, templates
 from services.supabase_client import init_supabase, is_supabase_configured
 from services.runway import close_http_client
+from services.templates import init_templates
 
 
 @asynccontextmanager
@@ -42,6 +43,9 @@ async def lifespan(app: FastAPI):
         init_supabase()
     else:
         logging.warning("Supabase not configured - auth will not work")
+
+    # BE-STG13-014: Load template catalog
+    init_templates()
 
     yield
     # Shutdown
@@ -211,6 +215,7 @@ app.include_router(debug.router, prefix="/api")  # BE-INTEG-001
 app.include_router(capabilities.router, prefix="/api")  # BE-STG13-009
 app.include_router(audit.router, prefix="/api")  # BE-STG13-012
 app.include_router(assets.router, prefix="/api")  # BE-STG13-013
+app.include_router(templates.router, prefix="/api")  # BE-STG13-014
 
 
 # Standard error response model

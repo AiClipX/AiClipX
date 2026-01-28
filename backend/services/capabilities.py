@@ -49,6 +49,11 @@ class CapabilityService:
         return True  # Always true since BE-STG13-008
 
     @property
+    def templates_enabled(self) -> bool:
+        """Whether template catalog is available."""
+        return os.getenv("TEMPLATES_ENABLED", "true").lower() == "true"
+
+    @property
     def max_active_tasks_per_user(self) -> int:
         """Maximum concurrent tasks per user."""
         return MAX_CONCURRENT_TASKS_PER_USER
@@ -73,6 +78,7 @@ class CapabilityService:
                 "engineMockEnabled": self.engine_mock_enabled,
                 "signedUrlEnabled": self.signed_url_enabled,
                 "cancelEnabled": self.cancel_enabled,
+                "templatesEnabled": self.templates_enabled,
             },
             "limits": {
                 "maxActiveTasksPerUser": self.max_active_tasks_per_user,
