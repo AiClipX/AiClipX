@@ -33,6 +33,7 @@ from services.supabase_storage import (
 )
 from services.webhook import webhook_service
 from services.audit import audit_service
+from services.sse import sse_service
 
 logger = logging.getLogger(__name__)
 
@@ -582,6 +583,7 @@ class VideoTaskService:
 
         return VideoTask(
             id=row["id"],
+            userId=row.get("user_id"),  # BE-STG13-015: For SSE event targeting
             title=row.get("title"),
             prompt=row.get("prompt"),
             status=status,
@@ -610,6 +612,7 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
     queued -> processing (after 5s) -> completed (after 15s)
     BE-STG13-008: Checks for cancellation during processing.
     BE-STG13-010: Emits webhook events on status transitions.
+    BE-STG13-015: Emits SSE events on status transitions.
     """
     # Helper to get task info for webhook
     def get_task_info():
@@ -625,6 +628,7 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
         updated_task = service.update_task_status(task_id, VideoTaskStatus.processing, progress=10, request_id=request_id)
 
         # BE-STG13-010: Emit processing_started webhook
+        # BE-STG13-015: Emit SSE event
         if updated_task:
             await webhook_service.emit_event(
                 event_type="video_task.processing_started",
@@ -635,6 +639,15 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
                 task_created_at=updated_task.createdAt,
                 request_id=request_id,
             )
+            # SSE event
+            if updated_task.userId:
+                await sse_service.emit_task_event(
+                    user_id=updated_task.userId,
+                    event_type="task.processing_started",
+                    task_id=updated_task.id,
+                    request_id=request_id,
+                    data={"status": updated_task.status.value, "progress": updated_task.progress},
+                )
 
         # Wait 15s (check cancellation every 5s)
         for _ in range(3):
@@ -653,6 +666,7 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
         )
 
         # BE-STG13-010: Emit completed webhook
+        # BE-STG13-015: Emit SSE event
         if completed_task:
             await webhook_service.emit_event(
                 event_type="video_task.completed",
@@ -664,6 +678,19 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
                 request_id=request_id,
                 video_url=completed_task.videoUrl,
             )
+            # SSE event
+            if completed_task.userId:
+                await sse_service.emit_task_event(
+                    user_id=completed_task.userId,
+                    event_type="task.completed",
+                    task_id=completed_task.id,
+                    request_id=request_id,
+                    data={
+                        "status": completed_task.status.value,
+                        "videoUrl": completed_task.videoUrl,
+                        "videoUrlExpiresAt": completed_task.videoUrlExpiresAt.isoformat() if completed_task.videoUrlExpiresAt else None,
+                    },
+                )
 
     except Exception as e:
         logger.error(f"[{request_id}] Error processing task {task_id}: {e}")
@@ -686,6 +713,7 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
             )
 
             # BE-STG13-010: Emit failed webhook
+            # BE-STG13-015: Emit SSE event
             if failed_task:
                 await webhook_service.emit_event(
                     event_type="video_task.failed",
@@ -698,6 +726,19 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
                     error_code=error_code,
                     error_message=error_msg,
                 )
+                # SSE event
+                if failed_task.userId:
+                    await sse_service.emit_task_event(
+                        user_id=failed_task.userId,
+                        event_type="task.failed",
+                        task_id=failed_task.id,
+                        request_id=request_id,
+                        data={
+                            "status": failed_task.status.value,
+                            "errorCode": error_code,
+                            "errorMessage": error_msg,
+                        },
+                    )
 
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
@@ -719,6 +760,7 @@ async def process_runway_task(
     Background function to process Runway image-to-video task.
     Uses service_client (bypasses RLS) for status updates.
     BE-STG13-010: Emits webhook events on status transitions.
+    BE-STG13-015: Emits SSE events on status transitions.
 
     Flow:
     1. queued -> processing (immediately)
@@ -737,6 +779,7 @@ async def process_runway_task(
         processing_task = service.update_task_status(task_id, VideoTaskStatus.processing, progress=0, request_id=request_id)
 
         # BE-STG13-010: Emit processing_started webhook
+        # BE-STG13-015: Emit SSE event
         if processing_task:
             await webhook_service.emit_event(
                 event_type="video_task.processing_started",
@@ -747,6 +790,15 @@ async def process_runway_task(
                 task_created_at=processing_task.createdAt,
                 request_id=request_id,
             )
+            # SSE event
+            if processing_task.userId:
+                await sse_service.emit_task_event(
+                    user_id=processing_task.userId,
+                    event_type="task.processing_started",
+                    task_id=processing_task.id,
+                    request_id=request_id,
+                    data={"status": processing_task.status.value, "progress": processing_task.progress},
+                )
 
         # Step 2: Create Runway task
         logger.info(f"[{request_id}] Creating Runway task for {task_id}")
@@ -845,6 +897,7 @@ async def process_runway_task(
         logger.info(f"[{request_id}] Task {task_id} completed with videoUrl: {supabase_url[:50]}...")
 
         # BE-STG13-010: Emit completed webhook
+        # BE-STG13-015: Emit SSE event
         if completed_task:
             await webhook_service.emit_event(
                 event_type="video_task.completed",
@@ -856,6 +909,19 @@ async def process_runway_task(
                 request_id=request_id,
                 video_url=completed_task.videoUrl,
             )
+            # SSE event
+            if completed_task.userId:
+                await sse_service.emit_task_event(
+                    user_id=completed_task.userId,
+                    event_type="task.completed",
+                    task_id=completed_task.id,
+                    request_id=request_id,
+                    data={
+                        "status": completed_task.status.value,
+                        "videoUrl": completed_task.videoUrl,
+                        "videoUrlExpiresAt": completed_task.videoUrlExpiresAt.isoformat() if completed_task.videoUrlExpiresAt else None,
+                    },
+                )
 
     except (RunwayAPIError, RunwayConfigError) as e:
         logger.error(f"[{request_id}] Runway error for task {task_id}: {e}")
@@ -870,6 +936,7 @@ async def process_runway_task(
                 request_id=request_id,
             )
             # BE-STG13-010: Emit failed webhook
+            # BE-STG13-015: Emit SSE event
             if failed_task:
                 await webhook_service.emit_event(
                     event_type="video_task.failed",
@@ -882,6 +949,19 @@ async def process_runway_task(
                     error_code=error_code,
                     error_message=error_msg,
                 )
+                # SSE event
+                if failed_task.userId:
+                    await sse_service.emit_task_event(
+                        user_id=failed_task.userId,
+                        event_type="task.failed",
+                        task_id=failed_task.id,
+                        request_id=request_id,
+                        data={
+                            "status": failed_task.status.value,
+                            "errorCode": error_code,
+                            "errorMessage": error_msg,
+                        },
+                    )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
@@ -898,6 +978,7 @@ async def process_runway_task(
                 request_id=request_id,
             )
             # BE-STG13-010: Emit failed webhook
+            # BE-STG13-015: Emit SSE event
             if failed_task:
                 await webhook_service.emit_event(
                     event_type="video_task.failed",
@@ -910,6 +991,19 @@ async def process_runway_task(
                     error_code=error_code,
                     error_message=error_msg,
                 )
+                # SSE event
+                if failed_task.userId:
+                    await sse_service.emit_task_event(
+                        user_id=failed_task.userId,
+                        event_type="task.failed",
+                        task_id=failed_task.id,
+                        request_id=request_id,
+                        data={
+                            "status": failed_task.status.value,
+                            "errorCode": error_code,
+                            "errorMessage": error_msg,
+                        },
+                    )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
@@ -926,6 +1020,7 @@ async def process_runway_task(
                 request_id=request_id,
             )
             # BE-STG13-010: Emit failed webhook
+            # BE-STG13-015: Emit SSE event
             if failed_task:
                 await webhook_service.emit_event(
                     event_type="video_task.failed",
@@ -938,6 +1033,19 @@ async def process_runway_task(
                     error_code=error_code,
                     error_message=error_msg,
                 )
+                # SSE event
+                if failed_task.userId:
+                    await sse_service.emit_task_event(
+                        user_id=failed_task.userId,
+                        event_type="task.failed",
+                        task_id=failed_task.id,
+                        request_id=request_id,
+                        data={
+                            "status": failed_task.status.value,
+                            "errorCode": error_code,
+                            "errorMessage": error_msg,
+                        },
+                    )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 

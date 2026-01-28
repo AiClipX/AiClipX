@@ -54,6 +54,11 @@ class CapabilityService:
         return os.getenv("TEMPLATES_ENABLED", "true").lower() == "true"
 
     @property
+    def sse_events_enabled(self) -> bool:
+        """Whether SSE real-time events are available."""
+        return os.getenv("SSE_EVENTS_ENABLED", "true").lower() == "true"
+
+    @property
     def max_active_tasks_per_user(self) -> int:
         """Maximum concurrent tasks per user."""
         return MAX_CONCURRENT_TASKS_PER_USER
@@ -79,6 +84,7 @@ class CapabilityService:
                 "signedUrlEnabled": self.signed_url_enabled,
                 "cancelEnabled": self.cancel_enabled,
                 "templatesEnabled": self.templates_enabled,
+                "sseEventsEnabled": self.sse_events_enabled,
             },
             "limits": {
                 "maxActiveTasksPerUser": self.max_active_tasks_per_user,

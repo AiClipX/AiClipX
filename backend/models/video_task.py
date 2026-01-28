@@ -41,6 +41,7 @@ class VideoTask(BaseModel):
     """Video task model - consistent across all endpoints."""
 
     id: str
+    userId: Optional[str] = Field(default=None, exclude=True)  # Internal use, not serialized
     title: Optional[str] = None
     prompt: Optional[str] = None
     status: VideoTaskStatus
