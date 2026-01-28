@@ -60,6 +60,104 @@ def _get_pending_migrations(applied: set) -> List[Path]:
     return pending
 
 
+def _split_sql_statements(sql_content: str) -> List[str]:
+    """
+    Split SQL content into individual statements.
+
+    Handles:
+    - Multiple statements separated by semicolons
+    - Single-line comments (--)
+    - Multi-line comments (/* */)
+    - Strings containing semicolons
+
+    Returns list of non-empty statements.
+    """
+    statements = []
+    current = []
+    in_string = False
+    string_char = None
+    in_comment = False
+    in_block_comment = False
+    i = 0
+
+    while i < len(sql_content):
+        char = sql_content[i]
+        next_char = sql_content[i + 1] if i + 1 < len(sql_content) else ''
+
+        # Handle block comments /* */
+        if not in_string and not in_comment and char == '/' and next_char == '*':
+            in_block_comment = True
+            current.append(char)
+            i += 1
+            continue
+
+        if in_block_comment:
+            current.append(char)
+            if char == '*' and next_char == '/':
+                current.append(next_char)
+                in_block_comment = False
+                i += 2
+                continue
+            i += 1
+            continue
+
+        # Handle single-line comments --
+        if not in_string and char == '-' and next_char == '-':
+            in_comment = True
+            current.append(char)
+            i += 1
+            continue
+
+        if in_comment:
+            current.append(char)
+            if char == '\n':
+                in_comment = False
+            i += 1
+            continue
+
+        # Handle strings
+        if char in ("'", '"') and not in_string:
+            in_string = True
+            string_char = char
+            current.append(char)
+            i += 1
+            continue
+
+        if in_string:
+            current.append(char)
+            # Check for escape (doubled quote)
+            if char == string_char:
+                if next_char == string_char:
+                    # Escaped quote, skip next
+                    current.append(next_char)
+                    i += 2
+                    continue
+                else:
+                    in_string = False
+            i += 1
+            continue
+
+        # Statement separator
+        if char == ';':
+            current.append(char)
+            stmt = ''.join(current).strip()
+            if stmt and stmt != ';':
+                statements.append(stmt)
+            current = []
+            i += 1
+            continue
+
+        current.append(char)
+        i += 1
+
+    # Handle remaining content (statement without trailing semicolon)
+    remaining = ''.join(current).strip()
+    if remaining:
+        statements.append(remaining)
+
+    return statements
+
+
 def _update_journal(migration_name: str) -> None:
     """Update local journal file after successful migration."""
     META_DIR.mkdir(parents=True, exist_ok=True)
@@ -116,9 +214,14 @@ async def run_migrations(database) -> int:
         try:
             logger.info(f"Applying: {migration_name}")
 
-            # Read and execute SQL
+            # Read and split SQL into individual statements
             sql_content = sql_file.read_text()
-            await database.execute(sql_content)
+            statements = _split_sql_statements(sql_content)
+
+            # Execute each statement separately (asyncpg limitation)
+            for stmt in statements:
+                if stmt.strip():
+                    await database.execute(stmt)
 
             # Record in database
             await database.execute(
