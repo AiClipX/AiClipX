@@ -26,9 +26,10 @@ from services.ratelimit import limiter
 
 from database import close_db, init_db, check_db_health
 from generate_video import generate_video
-from routers import video_tasks, tts, auth, debug
+from routers import video_tasks, tts, auth, debug, capabilities, audit, assets, templates, events
 from services.supabase_client import init_supabase, is_supabase_configured
 from services.runway import close_http_client
+from services.templates import init_templates
 
 
 @asynccontextmanager
@@ -43,13 +44,35 @@ async def lifespan(app: FastAPI):
     else:
         logging.warning("Supabase not configured - auth will not work")
 
+    # BE-STG13-014: Load template catalog
+    init_templates()
+
     yield
     # Shutdown
     await close_http_client()
     await close_db()
 
-# Setup logging
+# Setup logging with token masking filter
+class TokenMaskingFilter(logging.Filter):
+    """Filter to mask JWT tokens in log messages (security: BE-STG13-015)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            # Mask JWT tokens in URLs (token=eyJ...)
+            import re
+            record.msg = re.sub(
+                r'(token=)eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+',
+                r'\1[MASKED]',
+                record.msg
+            )
+        return True
+
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+
+# Apply token masking filter to uvicorn access logger
+for logger_name in ["uvicorn.access", "uvicorn.error", ""]:
+    logging.getLogger(logger_name).addFilter(TokenMaskingFilter())
+
 logger = logging.getLogger(__name__)
 
 VERSION = "0.5.0"
@@ -99,6 +122,9 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # Request ID middleware (BE-STG8: reuse client's X-Request-Id if provided)
 # BE-STG11-006: Structured logging with latency, user, origin, idempotency
+# BE-STG13-009: API version header + client version logging
+from services.capabilities import API_VERSION
+
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
@@ -115,6 +141,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         idemp_key = request.headers.get("Idempotency-Key", "")
         idemp_prefix = idemp_key[:8] + "..." if idemp_key else "-"
 
+        # BE-STG13-009: Client version header
+        client_version = request.headers.get("X-AiClipX-Client-Version", "")
+
         request.state.request_id = request_id
         request.state.start_time = start_time
 
@@ -127,14 +156,19 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         user_id = getattr(request.state, "user_id", None)
         user_masked = user_id[:8] + "..." if user_id else "-"
 
+        # BE-STG13-009: Include client version in log if provided
+        client_ver_log = f" client={client_version}" if client_version else ""
+
         # Structured log line
         logger.info(
             f"[{request_id}] {request.method} {request.url.path} "
             f"→ {response.status_code} | {latency_ms}ms | "
-            f"user={user_masked} origin={origin} idemp={idemp_prefix}"
+            f"user={user_masked} origin={origin} idemp={idemp_prefix}{client_ver_log}"
         )
 
         response.headers["X-Request-Id"] = request_id
+        # BE-STG13-009: API version header on all responses
+        response.headers["X-AiClipX-Api-Version"] = str(API_VERSION)
         return response
 
 
@@ -188,8 +222,8 @@ app.add_middleware(
     allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-Id", "Accept", "Idempotency-Key"],
-    expose_headers=["X-Request-Id"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-Id", "Accept", "Idempotency-Key", "X-AiClipX-Client-Version"],
+    expose_headers=["X-Request-Id", "X-AiClipX-Api-Version"],
 )
 
 # Include routers
@@ -197,6 +231,11 @@ app.include_router(video_tasks.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")  # BE-AUTH-002
 app.include_router(debug.router, prefix="/api")  # BE-INTEG-001
+app.include_router(capabilities.router, prefix="/api")  # BE-STG13-009
+app.include_router(audit.router, prefix="/api")  # BE-STG13-012
+app.include_router(assets.router, prefix="/api")  # BE-STG13-013
+app.include_router(templates.router, prefix="/api")  # BE-STG13-014
+app.include_router(events.router, prefix="/api")  # BE-STG13-015
 
 
 # Standard error response model

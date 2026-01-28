@@ -10,6 +10,7 @@ class VideoTaskStatus(str, Enum):
     processing = "processing"
     completed = "completed"
     failed = "failed"
+    cancelled = "cancelled"  # BE-STG13-008
 
 
 class VideoEngine(str, Enum):
@@ -40,6 +41,7 @@ class VideoTask(BaseModel):
     """Video task model - consistent across all endpoints."""
 
     id: str
+    userId: Optional[str] = Field(default=None, exclude=True)  # Internal use, not serialized
     title: Optional[str] = None
     prompt: Optional[str] = None
     status: VideoTaskStatus
@@ -58,6 +60,7 @@ class VideoTask(BaseModel):
     processingAt: Optional[datetime] = None  # Set once when entering 'processing'
     completedAt: Optional[datetime] = None   # Set once when entering 'completed'
     failedAt: Optional[datetime] = None      # Set once when entering 'failed'
+    cancelledAt: Optional[datetime] = None   # BE-STG13-008
 
     # BE-STG13-003: Licensing compliance fields
     deliveryType: Optional[str] = Field(

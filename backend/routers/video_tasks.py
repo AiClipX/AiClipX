@@ -16,6 +16,7 @@ from models.video_task import (
     VideoTask,
     VideoTaskListResponse,
     VideoEngine,
+    VideoTaskStatus,
 )
 from services.auth import AuthUser, get_current_user
 from services.supabase_client import get_user_client, get_service_client
@@ -26,14 +27,25 @@ from services.video_task_service import (
     process_runway_task,
     video_task_service,
 )
-from services.ratelimit import limiter, RATE_LIMIT_VIDEO_CREATE
+from services.ratelimit import limiter, RATE_LIMIT_VIDEO_CREATE, MAX_CONCURRENT_TASKS_PER_USER
+from services.capabilities import capability_service
+from services.webhook import webhook_service
 from services.error_response import error_response
+from services.audit import audit_service
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/video-tasks", tags=["Video Tasks"])
+
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP from request (handles proxies)."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _check_task_ownership(task_id: str, user_id: str, request_id: str):
@@ -157,7 +169,7 @@ async def get_video_tasks(
     ),
     status: Optional[str] = Query(
         default=None,
-        pattern="^(pending|queued|processing|completed|failed)$",
+        pattern="^(pending|queued|processing|completed|failed|cancelled)$",
         description="Filter by status",
     ),
     q: Optional[str] = Query(
@@ -351,6 +363,42 @@ async def create_video_task(
         f"title=\"{title_log}\" prompt=\"{prompt_log}\" engine={request_body.engine.value}"
     )
 
+    # BE-STG13-008: Check concurrency limit before creating task
+    active_count = video_task_service.count_active_tasks(user.id)
+    if active_count >= MAX_CONCURRENT_TASKS_PER_USER:
+        logger.warning(
+            f"[{request_id}] CONCURRENCY_LIMIT: user={user.id[:8]}... has {active_count} active tasks"
+        )
+        return error_response(
+            status_code=429,
+            code="CONCURRENCY_LIMIT_EXCEEDED",
+            message=f"Maximum {MAX_CONCURRENT_TASKS_PER_USER} concurrent tasks allowed. Wait for existing tasks to complete.",
+            request_id=request_id,
+            details={"activeCount": active_count, "limit": MAX_CONCURRENT_TASKS_PER_USER},
+        )
+
+    # BE-STG13-009: Check if runway engine is available
+    if request_body.engine == VideoEngine.runway and not capability_service.engine_runway_enabled:
+        logger.warning(f"[{request_id}] SERVICE_UNAVAILABLE: Runway engine disabled")
+        # BE-STG13-012: Emit audit log for capability degradation
+        audit_service.emit(
+            action="capability.disabled",
+            entity_type="feature",
+            entity_id="engineRunway",
+            actor_user_id=user.id,
+            request_id=request_id,
+            ip=get_client_ip(request),
+            user_agent=request.headers.get("User-Agent"),
+            meta={"feature": "engineRunway", "reason": "engine_unavailable"},
+        )
+        return error_response(
+            status_code=503,
+            code="SERVICE_UNAVAILABLE",
+            message="Runway engine is temporarily unavailable. Please try again later or use mock engine.",
+            request_id=request_id,
+            details={"feature": "engineRunway", "suggestion": "Use engine=mock for testing"},
+        )
+
     # Validate sourceImageUrl is required for runway engine
     if request_body.engine == VideoEngine.runway and not request_body.sourceImageUrl:
         logger.warning(f"[{request_id}] Missing sourceImageUrl for runway engine")
@@ -412,6 +460,31 @@ async def create_video_task(
         params=params_dict,
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value} for user={user.id[:8]}...")
+
+    # BE-STG13-012: Emit audit log for task creation
+    audit_service.emit(
+        action="task.create",
+        entity_type="video_task",
+        entity_id=task.id,
+        actor_user_id=user.id,
+        request_id=request_id,
+        ip=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent"),
+        meta={"engine": task.engine, "title": task.title[:50] if task.title else None},
+    )
+
+    # BE-STG13-010: Emit created webhook (fire-and-forget in background)
+    asyncio.create_task(
+        webhook_service.emit_event(
+            event_type="video_task.created",
+            task_id=task.id,
+            task_status=task.status.value,
+            task_title=task.title or "",
+            task_engine=task.engine or request_body.engine.value,
+            task_created_at=task.createdAt,
+            request_id=request_id,
+        )
+    )
 
     # Store idempotency key if provided (BE-STG12-004: persistent via Supabase)
     if idempotency_key:
@@ -509,10 +582,8 @@ async def update_task_status(
     Update task status (BE-STG8 PATCH).
 
     **State machine (strict transitions only):**
-    - queued → processing
-    - queued → failed
-    - processing → completed
-    - processing → failed
+    - queued → processing, failed, cancelled
+    - processing → completed, failed, cancelled
 
     **Field constraints:**
     - **processing**: videoUrl=null, errorMessage=null, progress 0-99
@@ -711,3 +782,126 @@ async def delete_video_task(
     logger.info(f"[{request_id}] Deleted task {task_id} | user={user.id[:8]}...")
 
     return Response(status_code=204)
+
+
+@router.post(
+    "/{task_id}/cancel",
+    response_model=VideoTask,
+    responses={
+        200: {"description": "Task cancelled successfully"},
+        403: {
+            "description": "Not authorized to cancel this task",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "FORBIDDEN",
+                        "message": "You do not have permission to access this task",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+        404: {
+            "description": "Task not found",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "NOT_FOUND",
+                        "message": "Video task not found",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+        409: {
+            "description": "Task cannot be cancelled (already completed/failed/cancelled)",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "code": "ILLEGAL_STATE_TRANSITION",
+                        "message": "Cannot cancel task in completed state",
+                        "requestId": "req_xxx",
+                    }
+                }
+            },
+        },
+    },
+)
+async def cancel_video_task(
+    task_id: str,
+    request: Request,
+    user: AuthUser = Depends(get_current_user),
+) -> VideoTask:
+    """
+    Cancel a video task (BE-STG13-008).
+
+    - **task_id**: Unique task identifier (e.g., vt_abc12345)
+
+    Only tasks in `queued` or `processing` state can be cancelled.
+    Background processing will stop at the next checkpoint.
+
+    Returns 404 if not found, 403 if not owned, 409 if already terminal.
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] POST /api/video-tasks/{task_id}/cancel | user={user.id[:8]}...")
+
+    # Check existence and ownership
+    task, err = _check_task_ownership(task_id, user.id, request_id)
+    if err:
+        return err
+
+    # Validate state transition (only queued/processing can be cancelled)
+    if not video_task_service.validate_transition(task.status, VideoTaskStatus.cancelled):
+        logger.warning(
+            f"[{request_id}] Cannot cancel task in {task.status.value} state"
+        )
+        return error_response(
+            status_code=409,
+            code="ILLEGAL_STATE_TRANSITION",
+            message=f"Cannot cancel task in {task.status.value} state",
+            request_id=request_id,
+            details={
+                "currentStatus": task.status.value,
+                "requestedStatus": "cancelled",
+            },
+        )
+
+    # Update task to cancelled
+    updated_task = video_task_service.update_task_status(
+        task_id=task_id,
+        status=VideoTaskStatus.cancelled,
+        request_id=request_id,
+    )
+
+    logger.info(f"[{request_id}] Task {task_id} cancelled | user={user.id[:8]}...")
+
+    # BE-STG13-012: Emit audit log for task cancellation
+    audit_service.emit(
+        action="task.cancel",
+        entity_type="video_task",
+        entity_id=task_id,
+        actor_user_id=user.id,
+        request_id=request_id,
+        ip=get_client_ip(request),
+        user_agent=request.headers.get("User-Agent"),
+        meta={"status_from": task.status.value, "status_to": "cancelled"},
+    )
+
+    # BE-STG13-010: Emit cancelled webhook (fire-and-forget in background)
+    if updated_task:
+        asyncio.create_task(
+            webhook_service.emit_event(
+                event_type="video_task.cancelled",
+                task_id=updated_task.id,
+                task_status=updated_task.status.value,
+                task_title=updated_task.title or "",
+                task_engine=updated_task.engine or "",
+                task_created_at=updated_task.createdAt,
+                request_id=request_id,
+            )
+        )
+
+    # Add debug info
+    updated_task.debug = DebugInfo(requestId=request_id)
+
+    return updated_task

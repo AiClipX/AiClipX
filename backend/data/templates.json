@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "id": "viral-hook",
+      "version": 1,
+      "name": "Viral Hook",
+      "description": "Create an eye-catching intro that grabs attention in the first 3 seconds",
+      "tags": ["short", "viral", "hook", "intro"],
+      "enabled": true,
+      "defaults": {
+        "title": "Viral Hook Video",
+        "prompt": "Create a viral hook video about {topic}. Start with a surprising statement or question that grabs attention immediately.",
+        "params": {
+          "duration": 5,
+          "style": "dynamic"
+        }
+      },
+      "regionPack": {
+        "en": {
+          "name": "Viral Hook",
+          "description": "Create an eye-catching intro that grabs attention in the first 3 seconds"
+        },
+        "ko": {
+          "name": "바이럴 훅",
+          "description": "첫 3초 안에 시선을 사로잡는 눈길을 끄는 인트로를 만드세요"
+        },
+        "zh": {
+          "name": "病毒式开场",
+          "description": "创建一个在前3秒内吸引注意力的引人注目的开场"
+        }
+      }
+    },
+    {
+      "id": "product-showcase",
+      "version": 1,
+      "name": "Product Showcase",
+      "description": "Highlight product features with dynamic visuals and clear benefits",
+      "tags": ["product", "showcase", "commercial", "marketing"],
+      "enabled": true,
+      "defaults": {
+        "title": "Product Showcase",
+        "prompt": "Create a product showcase video for {product}. Highlight key features, benefits, and what makes it unique.",
+        "params": {
+          "duration": 15,
+          "style": "professional"
+        }
+      },
+      "regionPack": {
+        "en": {
+          "name": "Product Showcase",
+          "description": "Highlight product features with dynamic visuals and clear benefits"
+        },
+        "ko": {
+          "name": "제품 쇼케이스",
+          "description": "역동적인 비주얼과 명확한 혜택으로 제품 기능을 강조하세요"
+        },
+        "zh": {
+          "name": "产品展示",
+          "description": "通过动态视觉效果和清晰的优势突出产品功能"
+        }
+      }
+    },
+    {
+      "id": "tutorial-explainer",
+      "version": 1,
+      "name": "Tutorial Explainer",
+      "description": "Step-by-step guide that teaches viewers how to do something",
+      "tags": ["tutorial", "howto", "educational", "explainer"],
+      "enabled": true,
+      "defaults": {
+        "title": "How To Guide",
+        "prompt": "Create a tutorial video explaining how to {task}. Break it down into clear, easy-to-follow steps.",
+        "params": {
+          "duration": 30,
+          "style": "educational"
+        }
+      },
+      "regionPack": {
+        "en": {
+          "name": "Tutorial Explainer",
+          "description": "Step-by-step guide that teaches viewers how to do something"
+        },
+        "ko": {
+          "name": "튜토리얼 설명",
+          "description": "시청자에게 무언가를 하는 방법을 가르치는 단계별 가이드"
+        },
+        "zh": {
+          "name": "教程讲解",
+          "description": "一步步教观众如何做某事的指南"
+        }
+      }
+    },
+    {
+      "id": "story-narrative",
+      "version": 1,
+      "name": "Story Narrative",
+      "description": "Tell a compelling story with emotional arc and engaging narrative",
+      "tags": ["story", "narrative", "emotional", "brand"],
+      "enabled": true,
+      "defaults": {
+        "title": "Story Video",
+        "prompt": "Create a narrative video telling the story of {subject}. Include a beginning, conflict, and resolution.",
+        "params": {
+          "duration": 60,
+          "style": "cinematic"
+        }
+      },
+      "regionPack": {
+        "en": {
+          "name": "Story Narrative",
+          "description": "Tell a compelling story with emotional arc and engaging narrative"
+        },
+        "ko": {
+          "name": "스토리 내러티브",
+          "description": "감정적인 흐름과 매력적인 내러티브로 흥미로운 이야기를 전하세요"
+        },
+        "zh": {
+          "name": "故事叙事",
+          "description": "讲述一个有情感弧度和引人入胜叙事的故事"
+        }
+      }
+    },
+    {
+      "id": "promo-ad",
+      "version": 1,
+      "name": "Promo Ad",
+      "description": "Short promotional advertisement with clear call-to-action",
+      "tags": ["promo", "ad", "commercial", "marketing", "short"],
+      "enabled": true,
+      "defaults": {
+        "title": "Promo Video",
+        "prompt": "Create a promotional ad for {offering}. Include a hook, key benefits, and a clear call-to-action.",
+        "params": {
+          "duration": 15,
+          "style": "energetic"
+        }
+      },
+      "regionPack": {
+        "en": {
+          "name": "Promo Ad",
+          "description": "Short promotional advertisement with clear call-to-action"
+        },
+        "ko": {
+          "name": "프로모션 광고",
+          "description": "명확한 행동 유도가 포함된 짧은 홍보 광고"
+        },
+        "zh": {
+          "name": "促销广告",
+          "description": "带有明确行动号召的短促销广告"
+        }
+      }
+    }
+  ]
+}

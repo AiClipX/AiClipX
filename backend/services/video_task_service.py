@@ -31,6 +31,9 @@ from services.supabase_storage import (
     SupabaseUploadError,
     SupabaseConfigError,
 )
+from services.webhook import webhook_service
+from services.audit import audit_service
+from services.sse import sse_service
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +72,13 @@ def safe_parse_datetime(dt_str: str) -> datetime:
         return datetime.now(timezone.utc)
 
 
-# State machine: allowed transitions
+# State machine: allowed transitions (BE-STG13-008: added cancelled)
 ALLOWED_TRANSITIONS = {
-    VideoTaskStatus.queued: [VideoTaskStatus.processing, VideoTaskStatus.failed],
-    VideoTaskStatus.processing: [VideoTaskStatus.completed, VideoTaskStatus.failed],
+    VideoTaskStatus.queued: [VideoTaskStatus.processing, VideoTaskStatus.failed, VideoTaskStatus.cancelled],
+    VideoTaskStatus.processing: [VideoTaskStatus.completed, VideoTaskStatus.failed, VideoTaskStatus.cancelled],
     VideoTaskStatus.completed: [],  # Terminal state
     VideoTaskStatus.failed: [],     # Terminal state
+    VideoTaskStatus.cancelled: [],  # Terminal state (BE-STG13-008)
 }
 
 
@@ -176,7 +180,7 @@ class VideoTaskService:
         query = client.table("video_tasks").select(
             "id, title, prompt, status, created_at, updated_at, video_url, error_message, "
             "source_image_url, engine, params, progress, user_id, "
-            "processing_at, completed_at, failed_at, video_url_expires_at"
+            "processing_at, completed_at, failed_at, cancelled_at, video_url_expires_at"
         )
 
         # BE-AUTH-001: Explicit user_id filter (defense-in-depth, not relying solely on RLS)
@@ -386,6 +390,12 @@ class VideoTaskService:
                 return "videoUrl must be null for failed status"
             # progress: no constraint - keep at failure point for observability
 
+        elif status == VideoTaskStatus.cancelled:
+            if video_url is not None:
+                return "videoUrl must be null for cancelled status"
+            if error_message is not None:
+                return "errorMessage must be null for cancelled status"
+
         return None
 
     def update_task_status(
@@ -435,6 +445,8 @@ class VideoTaskService:
             update_data["completed_at"] = now.isoformat()
         elif status == VideoTaskStatus.failed:
             update_data["failed_at"] = now.isoformat()
+        elif status == VideoTaskStatus.cancelled:
+            update_data["cancelled_at"] = now.isoformat()
 
         response = service_client.table("video_tasks").update(update_data).eq("id", task_id).execute()
 
@@ -453,8 +465,45 @@ class VideoTaskService:
             f"{old_status.value}→{status.value} latency={latency_ms}ms"
         )
 
+        # BE-STG13-012: Emit audit log for status changes (processing/completed/failed)
+        if status in [VideoTaskStatus.processing, VideoTaskStatus.completed, VideoTaskStatus.failed]:
+            audit_service.emit(
+                action=f"task.{status.value}",
+                entity_type="video_task",
+                entity_id=task_id,
+                actor_user_id=None,  # System action (background job)
+                request_id=request_id,
+                meta={"status_from": old_status.value, "status_to": status.value},
+            )
+
         # Fetch updated task
         return self.get_task_by_id(service_client, task_id)
+
+    def count_active_tasks(self, user_id: str) -> int:
+        """BE-STG13-008: Count active (queued or processing) tasks for a user."""
+        service_client = get_service_client()
+        response = (
+            service_client.table("video_tasks")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .in_("status", [VideoTaskStatus.queued.value, VideoTaskStatus.processing.value])
+            .execute()
+        )
+        return response.count or 0
+
+    def is_task_cancelled(self, task_id: str) -> bool:
+        """BE-STG13-008: Check if a task has been cancelled."""
+        service_client = get_service_client()
+        response = (
+            service_client.table("video_tasks")
+            .select("status")
+            .eq("id", task_id)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0].get("status") == VideoTaskStatus.cancelled.value
+        return False
 
     def delete_task(self, client: Client, task_id: str, user_id: str) -> bool:
         """
@@ -510,6 +559,7 @@ class VideoTaskService:
         processing_at = row.get("processing_at")
         completed_at = row.get("completed_at")
         failed_at = row.get("failed_at")
+        cancelled_at = row.get("cancelled_at")  # BE-STG13-008
 
         if isinstance(created_at, str):
             created_at = safe_parse_datetime(created_at)
@@ -521,6 +571,8 @@ class VideoTaskService:
             completed_at = safe_parse_datetime(completed_at)
         if isinstance(failed_at, str):
             failed_at = safe_parse_datetime(failed_at)
+        if isinstance(cancelled_at, str):
+            cancelled_at = safe_parse_datetime(cancelled_at)
 
         # BE-STG13-003: Licensing compliance - only final film output delivered
         video_url = row.get("video_url")
@@ -531,6 +583,7 @@ class VideoTaskService:
 
         return VideoTask(
             id=row["id"],
+            userId=row.get("user_id"),  # BE-STG13-015: For SSE event targeting
             title=row.get("title"),
             prompt=row.get("prompt"),
             status=status,
@@ -546,6 +599,7 @@ class VideoTaskService:
             processingAt=processing_at,
             completedAt=completed_at,
             failedAt=failed_at,
+            cancelledAt=cancelled_at,  # BE-STG13-008
             # BE-STG13-003: Licensing compliance
             deliveryType=delivery_type,
             videoUrlExpiresAt=video_url_expires_at,
@@ -556,38 +610,136 @@ async def simulate_task_processing(task_id: str, service: VideoTaskService, requ
     """
     Background function to simulate task status transitions (for engine=mock only).
     queued -> processing (after 5s) -> completed (after 15s)
-    All transitions are persisted to database via service_client (bypasses RLS).
+    BE-STG13-008: Checks for cancellation during processing.
+    BE-STG13-010: Emits webhook events on status transitions.
+    BE-STG13-015: Emits SSE events on status transitions.
     """
+    # Helper to get task info for webhook
+    def get_task_info():
+        client = get_service_client()
+        return service.get_task_by_id(client, task_id)
+
     try:
         # Wait 5s then transition to processing
         await asyncio.sleep(5)
-        service.update_task_status(task_id, VideoTaskStatus.processing, progress=10, request_id=request_id)
+        if service.is_task_cancelled(task_id):
+            logger.info(f"[{request_id}] Task {task_id} cancelled, stopping")
+            return
+        updated_task = service.update_task_status(task_id, VideoTaskStatus.processing, progress=10, request_id=request_id)
 
-        # Wait 15s then transition to completed
-        await asyncio.sleep(15)
+        # BE-STG13-010: Emit processing_started webhook
+        # BE-STG13-015: Emit SSE event
+        if updated_task:
+            await webhook_service.emit_event(
+                event_type="video_task.processing_started",
+                task_id=updated_task.id,
+                task_status=updated_task.status.value,
+                task_title=updated_task.title or "",
+                task_engine=updated_task.engine or "mock",
+                task_created_at=updated_task.createdAt,
+                request_id=request_id,
+            )
+            # SSE event
+            if updated_task.userId:
+                await sse_service.emit_task_event(
+                    user_id=updated_task.userId,
+                    event_type="task.processing_started",
+                    task_id=updated_task.id,
+                    request_id=request_id,
+                    data={"status": updated_task.status.value, "progress": updated_task.progress},
+                )
+
+        # Wait 15s (check cancellation every 5s)
+        for _ in range(3):
+            await asyncio.sleep(5)
+            if service.is_task_cancelled(task_id):
+                logger.info(f"[{request_id}] Task {task_id} cancelled during processing")
+                return
+
         video_url = random.choice(DEMO_VIDEOS)
-        service.update_task_status(
+        completed_task = service.update_task_status(
             task_id,
             VideoTaskStatus.completed,
             progress=100,
             video_url=video_url,
             request_id=request_id,
         )
+
+        # BE-STG13-010: Emit completed webhook
+        # BE-STG13-015: Emit SSE event
+        if completed_task:
+            await webhook_service.emit_event(
+                event_type="video_task.completed",
+                task_id=completed_task.id,
+                task_status=completed_task.status.value,
+                task_title=completed_task.title or "",
+                task_engine=completed_task.engine or "mock",
+                task_created_at=completed_task.createdAt,
+                request_id=request_id,
+                video_url=completed_task.videoUrl,
+            )
+            # SSE event
+            if completed_task.userId:
+                await sse_service.emit_task_event(
+                    user_id=completed_task.userId,
+                    event_type="task.completed",
+                    task_id=completed_task.id,
+                    request_id=request_id,
+                    data={
+                        "status": completed_task.status.value,
+                        "videoUrl": completed_task.videoUrl,
+                        "videoUrlExpiresAt": completed_task.videoUrlExpiresAt.isoformat() if completed_task.videoUrlExpiresAt else None,
+                    },
+                )
+
     except Exception as e:
         logger.error(f"[{request_id}] Error processing task {task_id}: {e}")
         try:
             # Sanitize error message - don't expose internal details
             error_msg = "Video processing failed. Please try again."
+            error_code = "PROCESSING_ERROR"
             if "timeout" in str(e).lower():
                 error_msg = "Processing timed out. Please try again."
+                error_code = "TIMEOUT"
             elif "network" in str(e).lower() or "connection" in str(e).lower():
                 error_msg = "Network error during processing. Please try again."
-            service.update_task_status(
+                error_code = "NETWORK_ERROR"
+
+            failed_task = service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
                 request_id=request_id,
             )
+
+            # BE-STG13-010: Emit failed webhook
+            # BE-STG13-015: Emit SSE event
+            if failed_task:
+                await webhook_service.emit_event(
+                    event_type="video_task.failed",
+                    task_id=failed_task.id,
+                    task_status=failed_task.status.value,
+                    task_title=failed_task.title or "",
+                    task_engine=failed_task.engine or "mock",
+                    task_created_at=failed_task.createdAt,
+                    request_id=request_id,
+                    error_code=error_code,
+                    error_message=error_msg,
+                )
+                # SSE event
+                if failed_task.userId:
+                    await sse_service.emit_task_event(
+                        user_id=failed_task.userId,
+                        event_type="task.failed",
+                        task_id=failed_task.id,
+                        request_id=request_id,
+                        data={
+                            "status": failed_task.status.value,
+                            "errorCode": error_code,
+                            "errorMessage": error_msg,
+                        },
+                    )
+
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
@@ -607,6 +759,8 @@ async def process_runway_task(
     """
     Background function to process Runway image-to-video task.
     Uses service_client (bypasses RLS) for status updates.
+    BE-STG13-010: Emits webhook events on status transitions.
+    BE-STG13-015: Emits SSE events on status transitions.
 
     Flow:
     1. queued -> processing (immediately)
@@ -622,7 +776,29 @@ async def process_runway_task(
 
     try:
         # Step 1: Transition to processing
-        service.update_task_status(task_id, VideoTaskStatus.processing, progress=0, request_id=request_id)
+        processing_task = service.update_task_status(task_id, VideoTaskStatus.processing, progress=0, request_id=request_id)
+
+        # BE-STG13-010: Emit processing_started webhook
+        # BE-STG13-015: Emit SSE event
+        if processing_task:
+            await webhook_service.emit_event(
+                event_type="video_task.processing_started",
+                task_id=processing_task.id,
+                task_status=processing_task.status.value,
+                task_title=processing_task.title or "",
+                task_engine=processing_task.engine or "runway",
+                task_created_at=processing_task.createdAt,
+                request_id=request_id,
+            )
+            # SSE event
+            if processing_task.userId:
+                await sse_service.emit_task_event(
+                    user_id=processing_task.userId,
+                    event_type="task.processing_started",
+                    task_id=processing_task.id,
+                    request_id=request_id,
+                    data={"status": processing_task.status.value, "progress": processing_task.progress},
+                )
 
         # Step 2: Create Runway task
         logger.info(f"[{request_id}] Creating Runway task for {task_id}")
@@ -643,6 +819,11 @@ async def process_runway_task(
         while elapsed_time < RUNWAY_MAX_POLL_TIME:
             await asyncio.sleep(RUNWAY_POLL_INTERVAL)
             elapsed_time += RUNWAY_POLL_INTERVAL
+
+            # BE-STG13-008: Check cancellation before continuing
+            if service.is_task_cancelled(task_id):
+                logger.info(f"[{request_id}] Task {task_id} cancelled during Runway polling, stopping")
+                return
 
             runway_result = await get_task_status(runway_task_id, request_id)
             logger.info(
@@ -705,7 +886,7 @@ async def process_runway_task(
             logger.info(f"[{request_id}] Video uploaded to Supabase: {upload_result.path}")
 
         # Step 6: Transition to completed
-        service.update_task_status(
+        completed_task = service.update_task_status(
             task_id,
             VideoTaskStatus.completed,
             progress=100,
@@ -715,17 +896,72 @@ async def process_runway_task(
         )
         logger.info(f"[{request_id}] Task {task_id} completed with videoUrl: {supabase_url[:50]}...")
 
+        # BE-STG13-010: Emit completed webhook
+        # BE-STG13-015: Emit SSE event
+        if completed_task:
+            await webhook_service.emit_event(
+                event_type="video_task.completed",
+                task_id=completed_task.id,
+                task_status=completed_task.status.value,
+                task_title=completed_task.title or "",
+                task_engine=completed_task.engine or "runway",
+                task_created_at=completed_task.createdAt,
+                request_id=request_id,
+                video_url=completed_task.videoUrl,
+            )
+            # SSE event
+            if completed_task.userId:
+                await sse_service.emit_task_event(
+                    user_id=completed_task.userId,
+                    event_type="task.completed",
+                    task_id=completed_task.id,
+                    request_id=request_id,
+                    data={
+                        "status": completed_task.status.value,
+                        "videoUrl": completed_task.videoUrl,
+                        "videoUrlExpiresAt": completed_task.videoUrlExpiresAt.isoformat() if completed_task.videoUrlExpiresAt else None,
+                    },
+                )
+
     except (RunwayAPIError, RunwayConfigError) as e:
         logger.error(f"[{request_id}] Runway error for task {task_id}: {e}")
         # Sanitize: don't expose internal API details
         error_msg = "Video generation service error. Please try again later."
+        error_code = "RUNWAY_ERROR"
         try:
-            service.update_task_status(
+            failed_task = service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
                 request_id=request_id,
             )
+            # BE-STG13-010: Emit failed webhook
+            # BE-STG13-015: Emit SSE event
+            if failed_task:
+                await webhook_service.emit_event(
+                    event_type="video_task.failed",
+                    task_id=failed_task.id,
+                    task_status=failed_task.status.value,
+                    task_title=failed_task.title or "",
+                    task_engine=failed_task.engine or "runway",
+                    task_created_at=failed_task.createdAt,
+                    request_id=request_id,
+                    error_code=error_code,
+                    error_message=error_msg,
+                )
+                # SSE event
+                if failed_task.userId:
+                    await sse_service.emit_task_event(
+                        user_id=failed_task.userId,
+                        event_type="task.failed",
+                        task_id=failed_task.id,
+                        request_id=request_id,
+                        data={
+                            "status": failed_task.status.value,
+                            "errorCode": error_code,
+                            "errorMessage": error_msg,
+                        },
+                    )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
@@ -733,13 +969,41 @@ async def process_runway_task(
         logger.error(f"[{request_id}] Storage error for task {task_id}: {e}")
         # Sanitize: don't expose storage details
         error_msg = "Failed to save video. Please try again later."
+        error_code = "STORAGE_ERROR"
         try:
-            service.update_task_status(
+            failed_task = service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
                 request_id=request_id,
             )
+            # BE-STG13-010: Emit failed webhook
+            # BE-STG13-015: Emit SSE event
+            if failed_task:
+                await webhook_service.emit_event(
+                    event_type="video_task.failed",
+                    task_id=failed_task.id,
+                    task_status=failed_task.status.value,
+                    task_title=failed_task.title or "",
+                    task_engine=failed_task.engine or "runway",
+                    task_created_at=failed_task.createdAt,
+                    request_id=request_id,
+                    error_code=error_code,
+                    error_message=error_msg,
+                )
+                # SSE event
+                if failed_task.userId:
+                    await sse_service.emit_task_event(
+                        user_id=failed_task.userId,
+                        event_type="task.failed",
+                        task_id=failed_task.id,
+                        request_id=request_id,
+                        data={
+                            "status": failed_task.status.value,
+                            "errorCode": error_code,
+                            "errorMessage": error_msg,
+                        },
+                    )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
@@ -747,13 +1011,41 @@ async def process_runway_task(
         logger.error(f"[{request_id}] Unexpected error in Runway processing: {e}")
         # Sanitize: generic error message for unexpected errors
         error_msg = "Video processing failed. Please try again."
+        error_code = "PROCESSING_ERROR"
         try:
-            service.update_task_status(
+            failed_task = service.update_task_status(
                 task_id,
                 VideoTaskStatus.failed,
                 error_message=error_msg,
                 request_id=request_id,
             )
+            # BE-STG13-010: Emit failed webhook
+            # BE-STG13-015: Emit SSE event
+            if failed_task:
+                await webhook_service.emit_event(
+                    event_type="video_task.failed",
+                    task_id=failed_task.id,
+                    task_status=failed_task.status.value,
+                    task_title=failed_task.title or "",
+                    task_engine=failed_task.engine or "runway",
+                    task_created_at=failed_task.createdAt,
+                    request_id=request_id,
+                    error_code=error_code,
+                    error_message=error_msg,
+                )
+                # SSE event
+                if failed_task.userId:
+                    await sse_service.emit_task_event(
+                        user_id=failed_task.userId,
+                        event_type="task.failed",
+                        task_id=failed_task.id,
+                        request_id=request_id,
+                        data={
+                            "status": failed_task.status.value,
+                            "errorCode": error_code,
+                            "errorMessage": error_msg,
+                        },
+                    )
         except Exception as update_err:
             logger.error(f"[{request_id}] Failed to update task {task_id} to failed: {update_err}")
 
