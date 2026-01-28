@@ -174,14 +174,16 @@ async def create_upload_url(
     # Create signed upload URL
     try:
         # Supabase Storage signed URL for upload
+        logger.info(f"[{request_id}] Calling create_signed_upload_url: bucket={USER_ASSETS_BUCKET} path={storage_path}")
         signed_url_response = client.storage.from_(USER_ASSETS_BUCKET).create_signed_upload_url(
             path=storage_path
         )
+        logger.info(f"[{request_id}] Storage response type={type(signed_url_response).__name__} keys={list(signed_url_response.keys()) if isinstance(signed_url_response, dict) else 'N/A'}")
 
-        # Extract URL from response
-        upload_url = signed_url_response.get("signedUrl") or signed_url_response.get("signed_url")
+        # Extract URL from response (handle both camelCase and snake_case)
+        upload_url = signed_url_response.get("signed_url") or signed_url_response.get("signedUrl")
         if not upload_url:
-            # Try path attribute for newer SDK versions
+            # Try attribute access for newer SDK versions
             if hasattr(signed_url_response, "signed_url"):
                 upload_url = signed_url_response.signed_url
             elif hasattr(signed_url_response, "signedUrl"):
@@ -194,7 +196,7 @@ async def create_upload_url(
     except Exception as e:
         if isinstance(e, UserAssetError):
             raise
-        logger.error(f"[{request_id}] Storage error creating upload URL: {e}")
+        logger.error(f"[{request_id}] Storage error creating upload URL: {type(e).__name__}: {e}")
         raise UserAssetError(f"Failed to create upload URL: {e}")
 
     # Calculate expiry time
