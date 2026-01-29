@@ -363,6 +363,41 @@ async def create_video_task(
         f"title=\"{title_log}\" prompt=\"{prompt_log}\" engine={request_body.engine.value}"
     )
 
+    # BE-AUTH-001: Use user_client for RLS enforcement
+    user_client = get_user_client(user.jwt_token)
+
+    # BE-STG13-016: Check idempotency BEFORE concurrency check (retry-safe)
+    # Replaying same key should return same task even if concurrency limit reached
+    if idempotency_key:
+        payload = {
+            "title": request_body.title,
+            "prompt": request_body.prompt,
+            "engine": request_body.engine.value,
+        }
+        idemp_result = check_idempotency(user.id, idempotency_key, payload)
+
+        # Payload mismatch → 409 Conflict
+        if idemp_result.mismatch:
+            logger.warning(
+                f"[{request_id}] Idempotency CONFLICT: key {idempotency_key[:8]}... "
+                "used with different payload - returning 409"
+            )
+            return error_response(
+                status_code=409,
+                code="IDEMPOTENCY_KEY_CONFLICT",
+                message="Idempotency-Key already used with different payload",
+                request_id=request_id,
+                details={"idempotencyKey": idempotency_key[:16] + "..."},
+            )
+
+        # Cache hit with matching payload → return existing task (skip concurrency check)
+        if idemp_result.hit and idemp_result.task_id:
+            logger.info(f"[{request_id}] Idempotency HIT: returning existing task {idemp_result.task_id}")
+            task = video_task_service.get_task_by_id(user_client, idemp_result.task_id, user_id=user.id)
+            if task:
+                task.debug = DebugInfo(requestId=request_id)
+                return task
+
     # BE-STG13-008: Check concurrency limit before creating task
     active_count = video_task_service.count_active_tasks(user.id)
     if active_count >= MAX_CONCURRENT_TASKS_PER_USER:
@@ -409,40 +444,6 @@ async def create_video_task(
             request_id=request_id,
             details={"field": "sourceImageUrl", "engine": "runway"},
         )
-
-    # BE-AUTH-001: Use user_client for RLS enforcement
-    user_client = get_user_client(user.jwt_token)
-
-    # Check idempotency if key provided (BE-STG12-004: persistent via Supabase)
-    if idempotency_key:
-        payload = {
-            "title": request_body.title,
-            "prompt": request_body.prompt,
-            "engine": request_body.engine.value,
-        }
-        idemp_result = check_idempotency(user.id, idempotency_key, payload)
-
-        # Payload mismatch → 409 Conflict
-        if idemp_result.mismatch:
-            logger.warning(
-                f"[{request_id}] Idempotency CONFLICT: key {idempotency_key[:8]}... "
-                "used with different payload - returning 409"
-            )
-            return error_response(
-                status_code=409,
-                code="IDEMPOTENCY_KEY_CONFLICT",
-                message="Idempotency-Key already used with different payload",
-                request_id=request_id,
-                details={"idempotencyKey": idempotency_key[:16] + "..."},
-            )
-
-        # Cache hit with matching payload → return existing task
-        if idemp_result.hit and idemp_result.task_id:
-            logger.info(f"[{request_id}] Idempotency hit: returning existing task {idemp_result.task_id}")
-            task = video_task_service.get_task_by_id(user_client, idemp_result.task_id, user_id=user.id)
-            if task:
-                task.debug = DebugInfo(requestId=request_id)
-                return task
 
     # Prepare params dict
     params_dict = None
