@@ -5,8 +5,8 @@ Prevent accidental duplicate creates and make "retry-safe" behavior production-g
 
 ## Server
 - URL: https://aiclipx-iam2.onrender.com
-- Timestamp: 2026-01-29T04:27:41Z
-- Idempotency-Key: `final-1769660861`
+- Test Timestamp: 2026-01-29T16:16:00Z (verified)
+- Idempotency-Key: `final-verify-1769703359`
 
 ---
 
@@ -143,3 +143,29 @@ Body:
 ### Configuration
 - TTL: 24 hours (configurable via `IDEMPOTENCY_TTL_HOURS` env var)
 - Storage: PostgreSQL `idempotency_keys` table with RLS
+
+---
+
+## Latest Verification (2026-01-29T16:16:00Z)
+
+### Curl Test with key `final-verify-1769703359`:
+
+**Test 1 - Create:**
+```json
+{"id":"vt_08e79187","title":"Final Test","status":"queued"}
+```
+
+**Test 2 - Replay SAME payload:**
+```json
+{"id":"vt_08e79187","title":"Final Test","status":"queued"}
+```
+✅ **SAME Task ID returned** - no duplicate created
+
+**Test 3 - Different payload:**
+```json
+{"code":"IDEMPOTENCY_KEY_CONFLICT","message":"Idempotency-Key already used with different payload"}
+```
+✅ **409 CONFLICT** with error code
+
+### No Duplicate Processing Confirmed
+Task list shows only ONE `vt_08e79187` task - no duplicates in database.
