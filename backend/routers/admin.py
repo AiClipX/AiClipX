@@ -58,78 +58,86 @@ def _verify_admin_secret(secret: str, request_id: str) -> JSONResponse | None:
 
 def _get_task_stats_last_1h() -> Dict[str, int]:
     """Get task statistics for the last hour from database."""
-    service_client = get_service_client()
-    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
-
-    # Count by status for tasks created in last hour
     stats = {"created": 0, "completed": 0, "failed": 0, "cancelled": 0}
 
-    # Total created in last hour
-    created_response = (
-        service_client.table("video_tasks")
-        .select("id", count="exact")
-        .gte("created_at", one_hour_ago.isoformat())
-        .execute()
-    )
-    stats["created"] = created_response.count or 0
+    try:
+        service_client = get_service_client()
+        one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
 
-    # Completed in last hour (by completed_at)
-    completed_response = (
-        service_client.table("video_tasks")
-        .select("id", count="exact")
-        .eq("status", "completed")
-        .gte("completed_at", one_hour_ago.isoformat())
-        .execute()
-    )
-    stats["completed"] = completed_response.count or 0
+        # Total created in last hour
+        created_response = (
+            service_client.table("video_tasks")
+            .select("id", count="exact")
+            .gte("created_at", one_hour_ago.isoformat())
+            .execute()
+        )
+        stats["created"] = created_response.count or 0
 
-    # Failed in last hour (by failed_at)
-    failed_response = (
-        service_client.table("video_tasks")
-        .select("id", count="exact")
-        .eq("status", "failed")
-        .gte("failed_at", one_hour_ago.isoformat())
-        .execute()
-    )
-    stats["failed"] = failed_response.count or 0
+        # Completed in last hour (by updated_at since completed_at may not exist)
+        completed_response = (
+            service_client.table("video_tasks")
+            .select("id", count="exact")
+            .eq("status", "completed")
+            .gte("updated_at", one_hour_ago.isoformat())
+            .execute()
+        )
+        stats["completed"] = completed_response.count or 0
 
-    # Cancelled in last hour (by cancelled_at)
-    cancelled_response = (
-        service_client.table("video_tasks")
-        .select("id", count="exact")
-        .eq("status", "cancelled")
-        .gte("cancelled_at", one_hour_ago.isoformat())
-        .execute()
-    )
-    stats["cancelled"] = cancelled_response.count or 0
+        # Failed in last hour (by updated_at)
+        failed_response = (
+            service_client.table("video_tasks")
+            .select("id", count="exact")
+            .eq("status", "failed")
+            .gte("updated_at", one_hour_ago.isoformat())
+            .execute()
+        )
+        stats["failed"] = failed_response.count or 0
+
+        # Cancelled in last hour (by updated_at)
+        cancelled_response = (
+            service_client.table("video_tasks")
+            .select("id", count="exact")
+            .eq("status", "cancelled")
+            .gte("updated_at", one_hour_ago.isoformat())
+            .execute()
+        )
+        stats["cancelled"] = cancelled_response.count or 0
+
+    except Exception as e:
+        logger.error(f"Failed to get task stats: {e}")
 
     return stats
 
 
 def _get_active_task_counts() -> Dict[str, int]:
     """Get counts of currently active tasks (queued and processing)."""
-    service_client = get_service_client()
+    counts = {"queued": 0, "processing": 0}
 
-    # Count queued
-    queued_response = (
-        service_client.table("video_tasks")
-        .select("id", count="exact")
-        .eq("status", "queued")
-        .execute()
-    )
+    try:
+        service_client = get_service_client()
 
-    # Count processing
-    processing_response = (
-        service_client.table("video_tasks")
-        .select("id", count="exact")
-        .eq("status", "processing")
-        .execute()
-    )
+        # Count queued
+        queued_response = (
+            service_client.table("video_tasks")
+            .select("id", count="exact")
+            .eq("status", "queued")
+            .execute()
+        )
+        counts["queued"] = queued_response.count or 0
 
-    return {
-        "queued": queued_response.count or 0,
-        "processing": processing_response.count or 0,
-    }
+        # Count processing
+        processing_response = (
+            service_client.table("video_tasks")
+            .select("id", count="exact")
+            .eq("status", "processing")
+            .execute()
+        )
+        counts["processing"] = processing_response.count or 0
+
+    except Exception as e:
+        logger.error(f"Failed to get active task counts: {e}")
+
+    return counts
 
 
 @router.get("/health")
