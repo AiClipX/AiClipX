@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
+
+@router.get("/ping")
+async def admin_ping():
+    """Simple ping endpoint to test admin router."""
+    return {"pong": True, "timestamp": datetime.now(timezone.utc).isoformat()}
+
 # Config
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "")
 BUILD_VERSION = os.getenv("BUILD_VERSION", "dev")
