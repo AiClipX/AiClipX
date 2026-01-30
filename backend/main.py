@@ -376,6 +376,17 @@ def root():
     """Root endpoint - responds to both GET and HEAD (BE-ENGINE-002: Render health check)."""
     return {"message": f"AiClipX v{VERSION} backend OK"}
 
+
+@app.get("/api/test-admin-import")
+def test_admin_import():
+    """Debug: Test if admin router was imported."""
+    try:
+        from routers import admin
+        routes = [r.path for r in admin.router.routes]
+        return {"admin_imported": True, "routes": routes}
+    except Exception as e:
+        return {"admin_imported": False, "error": str(e)}
+
 @app.post("/generate", include_in_schema=False, deprecated=True)
 def generate_endpoint(req: GenReq):
     """DEPRECATED: Use POST /api/video-tasks instead. This endpoint is for internal/legacy use only."""
