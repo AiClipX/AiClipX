@@ -6,6 +6,7 @@ These endpoints help diagnose CORS and auth issues quickly without
 requiring authentication.
 
 BE-STG12-006: Debug endpoints are blocked in production (return 404).
+BE-STG13-017: Added circuit breaker test endpoints.
 """
 
 import logging
@@ -16,6 +17,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from services.resilience import runway_circuit_breaker, EngineErrorCode, get_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -214,3 +217,102 @@ async def debug_cors(request: Request):
         credentials=credentials,
         environment=environment,
     )
+
+
+# =============================================================================
+# BE-STG13-017: Circuit Breaker Test Endpoints
+# =============================================================================
+
+
+@router.get("/circuit-breaker")
+async def get_circuit_breaker_status(request: Request):
+    """
+    BE-STG13-017: Get circuit breaker status for testing.
+
+    Returns current state, failure count, and threshold.
+    """
+    blocked = _block_in_production(request)
+    if blocked:
+        return blocked
+
+    request_id = getattr(request.state, "request_id", "unknown")
+    status = runway_circuit_breaker.get_status()
+    status["requestId"] = request_id
+
+    logger.info(f"[{request_id}] GET /api/debug/circuit-breaker → {status['state']}")
+    return status
+
+
+@router.post("/circuit-breaker/record-failure")
+async def record_circuit_failure(request: Request):
+    """
+    BE-STG13-017: Simulate a failure to test circuit breaker.
+
+    Call this 5 times to trigger OPEN state.
+    """
+    blocked = _block_in_production(request)
+    if blocked:
+        return blocked
+
+    request_id = getattr(request.state, "request_id", "unknown")
+
+    runway_circuit_breaker.record_failure()
+    status = runway_circuit_breaker.get_status()
+
+    logger.warning(f"[{request_id}] POST /api/debug/circuit-breaker/record-failure → {status['state']}")
+
+    return {
+        "requestId": request_id,
+        "message": "Failure recorded",
+        "circuitBreaker": status,
+    }
+
+
+@router.post("/circuit-breaker/record-success")
+async def record_circuit_success(request: Request):
+    """
+    BE-STG13-017: Simulate a success to test circuit breaker recovery.
+
+    Resets failure count and closes circuit.
+    """
+    blocked = _block_in_production(request)
+    if blocked:
+        return blocked
+
+    request_id = getattr(request.state, "request_id", "unknown")
+
+    runway_circuit_breaker.record_success()
+    status = runway_circuit_breaker.get_status()
+
+    logger.info(f"[{request_id}] POST /api/debug/circuit-breaker/record-success → {status['state']}")
+
+    return {
+        "requestId": request_id,
+        "message": "Success recorded",
+        "circuitBreaker": status,
+    }
+
+
+@router.post("/circuit-breaker/reset")
+async def reset_circuit_breaker(request: Request):
+    """
+    BE-STG13-017: Reset circuit breaker to CLOSED state.
+
+    Use this to restore normal operation after testing.
+    """
+    blocked = _block_in_production(request)
+    if blocked:
+        return blocked
+
+    request_id = getattr(request.state, "request_id", "unknown")
+
+    runway_circuit_breaker.reset()
+    status = runway_circuit_breaker.get_status()
+
+    logger.info(f"[{request_id}] POST /api/debug/circuit-breaker/reset → {status['state']}")
+
+    return {
+        "requestId": request_id,
+        "message": "Circuit breaker reset to CLOSED",
+        "circuitBreaker": status,
+    }
