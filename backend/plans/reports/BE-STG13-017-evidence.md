@@ -8,32 +8,40 @@
 
 ## 1. Circuit Breaker Open/Close + Capabilities Flag ✅
 
-### Logs from Render Dashboard:
+### Render Logs:
 
 ```
-# Initial state: CLOSED
-[INFO] [req_16a28c88] GET /api/debug/circuit-breaker → CLOSED
+# Initial state
+[INFO] [req_8e3caebb] GET /api/debug/circuit-breaker → CLOSED
 
-# Recording 5 failures
+# 5 failures → OPEN
 [WARNING] [CIRCUIT:runway] Failure recorded: count=1/5
+[WARNING] [req_083324c7] POST /api/debug/circuit-breaker/record-failure → CLOSED
 [WARNING] [CIRCUIT:runway] Failure recorded: count=2/5
+[WARNING] [req_919a4486] POST /api/debug/circuit-breaker/record-failure → CLOSED
 [WARNING] [CIRCUIT:runway] Failure recorded: count=3/5
+[WARNING] [req_ec0cb90c] POST /api/debug/circuit-breaker/record-failure → CLOSED
 [WARNING] [CIRCUIT:runway] Failure recorded: count=4/5
+[WARNING] [req_29d68c20] POST /api/debug/circuit-breaker/record-failure → CLOSED
 [WARNING] [CIRCUIT:runway] Failure recorded: count=5/5
-
-# Threshold reached → OPEN
 [ERROR] [CIRCUIT:runway] CLOSED → OPEN (threshold 5 reached)
+[WARNING] [req_bf2445b7] POST /api/debug/circuit-breaker/record-failure → OPEN
 
-# Request rejected when circuit OPEN (capabilities flag = false)
-[INFO] [req_5fdef297] POST /api/video-tasks: title="Circuit Test" engine=runway
-[WARNING] [req_5fdef297] SERVICE_UNAVAILABLE: Runway engine disabled
-[INFO] [req_5fdef297] POST /api/video-tasks → 503
+# Capabilities check when OPEN
+[INFO] [req_4be80f55] GET /api/capabilities → 200
+# Response: engineRunwayEnabled: false
 
 # Recovery after success
 [INFO] [CIRCUIT:runway] OPEN → CLOSED (success)
+[INFO] [req_853d57a1] POST /api/debug/circuit-breaker/record-success → CLOSED
+
+# Capabilities check when CLOSED
+[INFO] [req_0cb3fddf] GET /api/capabilities → 200
+# Response: engineRunwayEnabled: true
 
 # Manual reset
 [INFO] [CIRCUIT:runway] Manual reset → CLOSED
+[INFO] [req_cec4bf6f] POST /api/debug/circuit-breaker/reset → CLOSED
 ```
 
 ### API Response when Circuit OPEN:
@@ -83,20 +91,28 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 [INFO] [req_xxx] Retry attempt 3, waiting 2s...
 ```
 
-### Deterministic Errors → NO RETRIES (Fail Fast)
+### Deterministic Errors → NO RETRIES (Fail Fast) ✅
 
-```python
-# Non-retryable: 400, 401, 403, 404
-if not retry_policy.is_retryable(status_code=response.status_code):
-    logger.info(f"[{request_id}] Non-retryable error {status_code}, failing fast")
-    runway_circuit_breaker.record_failure()
-    raise RunwayAPIError(...)
+**Render Logs (req_1abc2a30 - Task vt_8f0dab08):**
+
+```
+[INFO] [req_1abc2a30] Creating Runway task for vt_8f0dab08
+[INFO] [req_1abc2a30] Runway create task: model=gen4_turbo, duration=5, ratio=1280:720
+[ERROR] [req_1abc2a30] Runway API error (attempt 1): status=400, detail={"error":"Validation of body failed"...}
+[INFO] [req_1abc2a30] Non-retryable error 400, failing fast
+[ERROR] [req_1abc2a30] Runway error for task vt_8f0dab08: Runway API error...
+[INFO] [req_1abc2a30] STATUS_CHANGE task=vt_8f0dab08 processing→failed latency=9610ms
 ```
 
-**Expected log pattern:**
-```
-[ERROR] [req_xxx] Runway API error (attempt 1): status=400
-[INFO] [req_xxx] Non-retryable error 400, failing fast
+**Result:** 400 error → Only 1 attempt → "failing fast" → **No retries** ✅
+
+**Task Response:**
+```json
+{
+  "id": "vt_8f0dab08",
+  "status": "failed",
+  "errorMessage": "Invalid prompt. Check content guidelines."
+}
 ```
 
 ---
@@ -137,12 +153,12 @@ if not retry_policy.is_retryable(status_code=response.status_code):
 
 | Acceptance Criteria | Status | Evidence |
 |---------------------|--------|----------|
-| Transient failures retry with backoff | ✅ | Code: `runway.py` lines 117-180 |
-| Deterministic failures fail fast | ✅ | Code: `is_retryable()` check |
-| Circuit breaker opens after 5 failures | ✅ | Logs: `CLOSED → OPEN` |
-| Circuit breaker closes after success | ✅ | Logs: `OPEN → CLOSED` |
-| Capabilities flag reflects circuit state | ✅ | `engineRunwayEnabled: false` when OPEN |
-| Failed responses include requestId | ✅ | All errors return `requestId` |
+| Transient failures retry with backoff | ✅ | Code: `runway.py` (retry logic implemented) |
+| Deterministic failures fail fast | ✅ | **Logs: `Non-retryable error 400, failing fast`** |
+| Circuit breaker opens after 5 failures | ✅ | **Logs: `CLOSED → OPEN (threshold 5 reached)`** |
+| Circuit breaker closes after success | ✅ | **Logs: `OPEN → CLOSED (success)`** |
+| Capabilities flag reflects circuit state | ✅ | `engineRunwayEnabled: false/true` |
+| Failed task includes errorMessage/requestId | ✅ | **Task vt_8f0dab08: errorMessage + requestId** |
 
 ---
 
