@@ -26,6 +26,10 @@ from services.runway import (
     RunwayAPIError,
     RunwayConfigError,
 )
+from services.resilience import (
+    EngineErrorCode,
+    get_error_message,
+)
 from services.supabase_storage import (
     upload_video,
     SupabaseUploadError,
@@ -925,9 +929,16 @@ async def process_runway_task(
 
     except (RunwayAPIError, RunwayConfigError) as e:
         logger.error(f"[{request_id}] Runway error for task {task_id}: {e}")
-        # Sanitize: don't expose internal API details
-        error_msg = "Video generation service error. Please try again later."
-        error_code = "RUNWAY_ERROR"
+        # BE-STG13-017: Use standardized error codes
+        if isinstance(e, RunwayAPIError) and e.error_code:
+            error_code = e.error_code.value
+            error_msg = get_error_message(e.error_code)
+        elif isinstance(e, RunwayConfigError):
+            error_code = EngineErrorCode.ENGINE_AUTH_ERROR.value
+            error_msg = get_error_message(EngineErrorCode.ENGINE_AUTH_ERROR)
+        else:
+            error_code = EngineErrorCode.ENGINE_UNAVAILABLE.value
+            error_msg = get_error_message(EngineErrorCode.ENGINE_UNAVAILABLE)
         try:
             failed_task = service.update_task_status(
                 task_id,

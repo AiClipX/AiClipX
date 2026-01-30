@@ -4,8 +4,11 @@ Runway API service for image-to-video generation.
 
 Docs: https://docs.dev.runwayml.com/guides/using-the-api/
 API Reference: https://docs.dev.runwayml.com/api/
+
+BE-STG13-017: Added retry policy and circuit breaker for resilience.
 """
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass
@@ -13,6 +16,14 @@ from enum import Enum
 from typing import Optional
 
 import httpx
+
+from services.resilience import (
+    retry_policy,
+    runway_circuit_breaker,
+    EngineErrorCode,
+    get_error_message,
+    map_status_to_error_code,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +70,15 @@ class RunwayConfigError(Exception):
 
 class RunwayAPIError(Exception):
     """Raised when Runway API returns an error."""
-    def __init__(self, message: str, status_code: Optional[int] = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        error_code: Optional[EngineErrorCode] = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
+        self.error_code = error_code or map_status_to_error_code(status_code)
 
 
 class RunwayTaskStatus(str, Enum):
@@ -125,6 +142,8 @@ async def create_image_to_video_task(
     """
     Create an image-to-video generation task.
 
+    BE-STG13-017: Includes retry policy and circuit breaker.
+
     Args:
         prompt_image_url: URL of the source image
         prompt_text: Text prompt for video generation
@@ -138,8 +157,16 @@ async def create_image_to_video_task(
 
     Raises:
         RunwayConfigError: If API key is not configured
-        RunwayAPIError: If API request fails
+        RunwayAPIError: If API request fails (after retries exhausted)
     """
+    # BE-STG13-017: Check circuit breaker
+    if not runway_circuit_breaker.can_attempt():
+        logger.warning(f"[{request_id}] Runway circuit OPEN - rejecting request")
+        raise RunwayAPIError(
+            get_error_message(EngineErrorCode.ENGINE_CIRCUIT_OPEN),
+            error_code=EngineErrorCode.ENGINE_CIRCUIT_OPEN,
+        )
+
     logger.info(
         f"[{request_id}] Runway create task: model={model}, duration={duration}, ratio={ratio}"
     )
@@ -153,35 +180,75 @@ async def create_image_to_video_task(
     }
 
     client = get_http_client()
-    try:
-        response = await client.post(
-            f"{RUNWAY_API_BASE}/image_to_video",
-            headers=_get_headers(),
-            json=payload,
-        )
+    last_error: Optional[Exception] = None
+    last_status: Optional[int] = None
 
-        if response.status_code != 200 and response.status_code != 201:
+    # BE-STG13-017: Retry loop with exponential backoff
+    for attempt in range(1, retry_policy.MAX_ATTEMPTS + 1):
+        try:
+            # Delay before retry (not on first attempt)
+            delay = retry_policy.get_delay(attempt)
+            if delay > 0:
+                logger.info(f"[{request_id}] Retry attempt {attempt}, waiting {delay}s...")
+                await asyncio.sleep(delay)
+
+            response = await client.post(
+                f"{RUNWAY_API_BASE}/image_to_video",
+                headers=_get_headers(),
+                json=payload,
+            )
+
+            if response.status_code in (200, 201):
+                data = response.json()
+                task_id = data.get("id")
+
+                if not task_id:
+                    raise RunwayAPIError("Runway API did not return task ID")
+
+                # Success - record and return
+                runway_circuit_breaker.record_success()
+                logger.info(f"[{request_id}] Runway task created: task_id={task_id}")
+                return task_id
+
+            # Error response
+            last_status = response.status_code
             error_detail = response.text[:200] if response.text else "Unknown error"
             logger.error(
-                f"[{request_id}] Runway API error: status={response.status_code}, detail={error_detail}"
+                f"[{request_id}] Runway API error (attempt {attempt}): "
+                f"status={response.status_code}, detail={error_detail}"
             )
-            raise RunwayAPIError(
+
+            # Check if retryable
+            if not retry_policy.is_retryable(status_code=response.status_code):
+                logger.info(f"[{request_id}] Non-retryable error {response.status_code}, failing fast")
+                runway_circuit_breaker.record_failure()
+                raise RunwayAPIError(
+                    f"Runway API error: {error_detail}",
+                    status_code=response.status_code,
+                )
+
+            last_error = RunwayAPIError(
                 f"Runway API error: {error_detail}",
                 status_code=response.status_code,
             )
 
-        data = response.json()
-        task_id = data.get("id")
+        except httpx.RequestError as e:
+            logger.error(f"[{request_id}] Runway request failed (attempt {attempt}): {e}")
+            last_error = e
+            last_status = None
 
-        if not task_id:
-            raise RunwayAPIError("Runway API did not return task ID")
+            # Network errors are retryable
+            if not retry_policy.should_retry(attempt):
+                break
 
-        logger.info(f"[{request_id}] Runway task created: task_id={task_id}")
-        return task_id
-
-    except httpx.RequestError as e:
-        logger.error(f"[{request_id}] Runway request failed: {e}")
-        raise RunwayAPIError(f"Failed to connect to Runway API: {e}")
+    # All retries exhausted
+    runway_circuit_breaker.record_failure()
+    error_code = map_status_to_error_code(last_status)
+    raise RunwayAPIError(
+        f"Failed after {retry_policy.MAX_ATTEMPTS} attempts: {last_error}",
+        status_code=last_status,
+        error_code=error_code,
+    )
 
 
 async def get_task_status(
@@ -190,6 +257,8 @@ async def get_task_status(
 ) -> RunwayTaskResult:
     """
     Get the status of a Runway task.
+
+    BE-STG13-017: Includes retry policy and circuit breaker.
 
     Args:
         task_id: Runway task ID
@@ -200,66 +269,110 @@ async def get_task_status(
 
     Raises:
         RunwayConfigError: If API key is not configured
-        RunwayAPIError: If API request fails
+        RunwayAPIError: If API request fails (after retries exhausted)
     """
-    client = get_http_client()
-    try:
-        response = await client.get(
-            f"{RUNWAY_API_BASE}/tasks/{task_id}",
-            headers=_get_headers(),
+    # BE-STG13-017: Check circuit breaker
+    if not runway_circuit_breaker.can_attempt():
+        logger.warning(f"[{request_id}] Runway circuit OPEN - rejecting poll request")
+        raise RunwayAPIError(
+            get_error_message(EngineErrorCode.ENGINE_CIRCUIT_OPEN),
+            error_code=EngineErrorCode.ENGINE_CIRCUIT_OPEN,
         )
 
-        if response.status_code != 200:
+    client = get_http_client()
+    last_error: Optional[Exception] = None
+    last_status: Optional[int] = None
+
+    # BE-STG13-017: Retry loop
+    for attempt in range(1, retry_policy.MAX_ATTEMPTS + 1):
+        try:
+            delay = retry_policy.get_delay(attempt)
+            if delay > 0:
+                logger.info(f"[{request_id}] Poll retry attempt {attempt}, waiting {delay}s...")
+                await asyncio.sleep(delay)
+
+            response = await client.get(
+                f"{RUNWAY_API_BASE}/tasks/{task_id}",
+                headers=_get_headers(),
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                status_str = data.get("status", "PENDING")
+
+                # Map status to progress
+                progress = 0
+                if status_str == "RUNNING":
+                    progress = 50
+                elif status_str == "SUCCEEDED":
+                    progress = 100
+                elif status_str == "FAILED" or status_str == "CANCELED":
+                    progress = 0
+
+                # Get output URL if succeeded
+                output_url = None
+                if status_str == "SUCCEEDED":
+                    output = data.get("output", [])
+                    if output and len(output) > 0:
+                        output_url = output[0]
+
+                # Get error message if failed
+                error_message = None
+                if status_str == "FAILED":
+                    error_message = data.get("failure", data.get("failureCode", "Unknown error"))
+                elif status_str == "CANCELED":
+                    error_message = "Task was canceled"
+
+                logger.info(
+                    f"[{request_id}] Runway task {task_id}: status={status_str}, progress={progress}"
+                )
+
+                # Success - record and return
+                runway_circuit_breaker.record_success()
+                return RunwayTaskResult(
+                    task_id=task_id,
+                    status=RunwayTaskStatus(status_str),
+                    progress=progress,
+                    output_url=output_url,
+                    error_message=error_message,
+                )
+
+            # Error response
+            last_status = response.status_code
             error_detail = response.text[:200] if response.text else "Unknown error"
             logger.error(
-                f"[{request_id}] Runway get task error: status={response.status_code}, detail={error_detail}"
+                f"[{request_id}] Runway get task error (attempt {attempt}): "
+                f"status={response.status_code}, detail={error_detail}"
             )
-            raise RunwayAPIError(
+
+            if not retry_policy.is_retryable(status_code=response.status_code):
+                runway_circuit_breaker.record_failure()
+                raise RunwayAPIError(
+                    f"Failed to get task status: {error_detail}",
+                    status_code=response.status_code,
+                )
+
+            last_error = RunwayAPIError(
                 f"Failed to get task status: {error_detail}",
                 status_code=response.status_code,
             )
 
-        data = response.json()
-        status_str = data.get("status", "PENDING")
+        except httpx.RequestError as e:
+            logger.error(f"[{request_id}] Runway get task failed (attempt {attempt}): {e}")
+            last_error = e
+            last_status = None
 
-        # Map status to progress
-        progress = 0
-        if status_str == "RUNNING":
-            progress = 50
-        elif status_str == "SUCCEEDED":
-            progress = 100
-        elif status_str == "FAILED" or status_str == "CANCELED":
-            progress = 0
+            if not retry_policy.should_retry(attempt):
+                break
 
-        # Get output URL if succeeded
-        output_url = None
-        if status_str == "SUCCEEDED":
-            output = data.get("output", [])
-            if output and len(output) > 0:
-                output_url = output[0]  # First output URL
-
-        # Get error message if failed
-        error_message = None
-        if status_str == "FAILED":
-            error_message = data.get("failure", data.get("failureCode", "Unknown error"))
-        elif status_str == "CANCELED":
-            error_message = "Task was canceled"
-
-        logger.info(
-            f"[{request_id}] Runway task {task_id}: status={status_str}, progress={progress}"
-        )
-
-        return RunwayTaskResult(
-            task_id=task_id,
-            status=RunwayTaskStatus(status_str),
-            progress=progress,
-            output_url=output_url,
-            error_message=error_message,
-        )
-
-    except httpx.RequestError as e:
-        logger.error(f"[{request_id}] Runway get task failed: {e}")
-        raise RunwayAPIError(f"Failed to get task status: {e}")
+    # All retries exhausted
+    runway_circuit_breaker.record_failure()
+    error_code = map_status_to_error_code(last_status)
+    raise RunwayAPIError(
+        f"Failed to get task status after {retry_policy.MAX_ATTEMPTS} attempts: {last_error}",
+        status_code=last_status,
+        error_code=error_code,
+    )
 
 
 def is_runway_configured() -> bool:

@@ -4,6 +4,8 @@ BE-STG13-009: Capability flags service.
 
 Provides runtime capability detection based on environment configuration.
 Used by /api/capabilities endpoint and feature degradation checks.
+
+BE-STG13-017: Added circuit breaker status integration.
 """
 import os
 from typing import Dict, Any
@@ -29,9 +31,32 @@ class CapabilityService:
 
     @property
     def engine_runway_enabled(self) -> bool:
-        """Whether Runway engine is available (requires API key)."""
+        """
+        Whether Runway engine is available.
+
+        BE-STG13-017: Also checks circuit breaker status.
+        Returns False if:
+        - No RUNWAY_API_KEY configured
+        - Circuit breaker is OPEN (too many failures)
+        """
         runway_key = os.getenv("RUNWAY_API_KEY", "")
-        return bool(runway_key and runway_key.strip())
+        has_key = bool(runway_key and runway_key.strip())
+
+        if not has_key:
+            return False
+
+        # BE-STG13-017: Check circuit breaker
+        from services.resilience import runway_circuit_breaker
+        if runway_circuit_breaker.is_open():
+            return False
+
+        return True
+
+    @property
+    def runway_circuit_status(self) -> dict:
+        """BE-STG13-017: Get Runway circuit breaker status."""
+        from services.resilience import runway_circuit_breaker
+        return runway_circuit_breaker.get_status()
 
     @property
     def engine_mock_enabled(self) -> bool:
@@ -90,6 +115,10 @@ class CapabilityService:
                 "maxActiveTasksPerUser": self.max_active_tasks_per_user,
                 "maxTitleLength": self.max_title_length,
                 "maxPromptLength": self.max_prompt_length,
+            },
+            # BE-STG13-017: Circuit breaker status
+            "circuitBreakers": {
+                "runway": self.runway_circuit_status,
             },
         }
 
