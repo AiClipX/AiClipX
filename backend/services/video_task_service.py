@@ -38,6 +38,7 @@ from services.supabase_storage import (
 from services.webhook import webhook_service
 from services.audit import audit_service
 from services.sse import sse_service
+from services.metrics import emit_task_completed, emit_task_failed, emit_task_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -468,6 +469,25 @@ class VideoTaskService:
             f"[{request_id}] STATUS_CHANGE task={task_id} "
             f"{old_status.value}→{status.value} latency={latency_ms}ms"
         )
+
+        # BE-STG13-018: Emit metrics for status changes
+        user_id = current_task.userId if current_task else None
+        if status == VideoTaskStatus.completed and user_id:
+            emit_task_completed(task_id, user_id, latency_ms)
+        elif status == VideoTaskStatus.failed and user_id:
+            error_code = "UNKNOWN"
+            if error_message:
+                if "timeout" in error_message.lower():
+                    error_code = "TIMEOUT"
+                elif "unavailable" in error_message.lower():
+                    error_code = "ENGINE_UNAVAILABLE"
+                elif "invalid" in error_message.lower():
+                    error_code = "INVALID_PROMPT"
+                else:
+                    error_code = "PROCESSING_ERROR"
+            emit_task_failed(task_id, user_id, error_code)
+        elif status == VideoTaskStatus.cancelled and user_id:
+            emit_task_cancelled(task_id, user_id)
 
         # BE-STG13-012: Emit audit log for status changes (processing/completed/failed)
         if status in [VideoTaskStatus.processing, VideoTaskStatus.completed, VideoTaskStatus.failed]:

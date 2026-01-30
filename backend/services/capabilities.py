@@ -11,6 +11,7 @@ import os
 from typing import Dict, Any
 
 from services.ratelimit import MAX_CONCURRENT_TASKS_PER_USER
+from services.quota import MAX_TASKS_PER_DAY_PER_USER
 
 
 # API Version - increment on breaking changes
@@ -89,6 +90,11 @@ class CapabilityService:
         return MAX_CONCURRENT_TASKS_PER_USER
 
     @property
+    def max_tasks_per_day(self) -> int:
+        """BE-STG13-018: Maximum tasks per user per day."""
+        return MAX_TASKS_PER_DAY_PER_USER
+
+    @property
     def max_title_length(self) -> int:
         """Maximum title length for video tasks."""
         return 500
@@ -113,6 +119,7 @@ class CapabilityService:
             },
             "limits": {
                 "maxActiveTasksPerUser": self.max_active_tasks_per_user,
+                "maxTasksPerDay": self.max_tasks_per_day,  # BE-STG13-018
                 "maxTitleLength": self.max_title_length,
                 "maxPromptLength": self.max_prompt_length,
             },

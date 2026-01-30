@@ -32,6 +32,8 @@ from services.capabilities import capability_service
 from services.webhook import webhook_service
 from services.error_response import error_response
 from services.audit import audit_service
+from services.quota import check_daily_quota
+from services.metrics import emit_task_created, emit_quota_exceeded
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -402,6 +404,26 @@ async def create_video_task(
         # Lock acquired → proceed to create task
         idemp_acquired = acquire_result.acquired
 
+    # BE-STG13-018: Check daily quota before creating task
+    quota_result = check_daily_quota(user.id)
+    if quota_result.exceeded:
+        logger.warning(
+            f"[{request_id}] DAILY_QUOTA_EXCEEDED: user={user.id[:8]}... "
+            f"used={quota_result.used} limit={quota_result.limit}"
+        )
+        emit_quota_exceeded(user.id, quota_result.used, quota_result.limit)
+        return error_response(
+            status_code=429,
+            code="DAILY_QUOTA_EXCEEDED",
+            message="Daily task limit reached. Resets at midnight UTC.",
+            request_id=request_id,
+            details={
+                "used": quota_result.used,
+                "limit": quota_result.limit,
+                "resetsAt": quota_result.resets_at.isoformat(),
+            },
+        )
+
     # BE-STG13-008: Check concurrency limit before creating task
     active_count = video_task_service.count_active_tasks(user.id)
     if active_count >= MAX_CONCURRENT_TASKS_PER_USER:
@@ -465,6 +487,9 @@ async def create_video_task(
         params=params_dict,
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value} for user={user.id[:8]}...")
+
+    # BE-STG13-018: Emit metrics for task creation
+    emit_task_created(user.id, request_body.engine.value, request_id, task.id)
 
     # BE-STG13-012: Emit audit log for task creation
     audit_service.emit(
