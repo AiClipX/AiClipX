@@ -7,7 +7,7 @@ Protected by X-Admin-Secret header.
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
@@ -144,7 +144,7 @@ def _get_active_task_counts() -> Dict[str, int]:
 async def admin_health(
     request: Request,
     x_admin_secret: str = Header(default="", alias="X-Admin-Secret"),
-) -> Dict[str, Any]:
+):
     """
     BE-STG13-018: Admin health endpoint for system monitoring.
 
@@ -159,49 +159,70 @@ async def admin_health(
     logger.info(f"[{request_id}] GET /api/admin/health")
 
     # Verify admin secret
-    error_response = _verify_admin_secret(x_admin_secret, request_id)
-    if error_response:
-        return error_response
+    error_resp = _verify_admin_secret(x_admin_secret, request_id)
+    if error_resp:
+        return error_resp
 
-    # Check Runway availability
-    runway_key = os.getenv("RUNWAY_API_KEY", "")
-    runway_available = bool(runway_key and runway_key.strip()) and not runway_circuit_breaker.is_open()
+    try:
+        # Check Runway availability
+        runway_key = os.getenv("RUNWAY_API_KEY", "")
+        runway_available = bool(runway_key and runway_key.strip())
 
-    # Get circuit breaker status
-    circuit_status = runway_circuit_breaker.get_status()
+        # Get circuit breaker status
+        circuit_state = "UNKNOWN"
+        failure_count = 0
+        try:
+            circuit_status = runway_circuit_breaker.get_status()
+            circuit_state = circuit_status.get("state", "UNKNOWN")
+            failure_count = circuit_status.get("failure_count", 0)
+            if runway_available and runway_circuit_breaker.is_open():
+                runway_available = False
+        except Exception as cb_err:
+            logger.warning(f"[{request_id}] Circuit breaker error: {cb_err}")
 
-    # Get task stats
-    last_1h_stats = _get_task_stats_last_1h()
-    active_counts = _get_active_task_counts()
+        # Get task stats (graceful failure)
+        last_1h_stats = _get_task_stats_last_1h()
+        active_counts = _get_active_task_counts()
 
-    health_response = {
-        "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "requestId": request_id,
-        "build": {
-            "version": BUILD_VERSION,
-            "commit": BUILD_COMMIT,
-            "deployedAt": BUILD_DEPLOYED_AT,
-        },
-        "engines": {
-            "runway": {
-                "available": runway_available,
-                "circuitState": circuit_status["state"],
-                "failureCount": circuit_status["failure_count"],
+        health_response = {
+            "status": "healthy",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "requestId": request_id,
+            "build": {
+                "version": BUILD_VERSION,
+                "commit": BUILD_COMMIT,
+                "deployedAt": BUILD_DEPLOYED_AT,
             },
-            "mock": {
-                "available": os.getenv("ENABLE_MOCK_ENGINE", "true").lower() == "true",
+            "engines": {
+                "runway": {
+                    "available": runway_available,
+                    "circuitState": circuit_state,
+                    "failureCount": failure_count,
+                },
+                "mock": {
+                    "available": os.getenv("ENABLE_MOCK_ENGINE", "true").lower() == "true",
+                },
             },
-        },
-        "config": {
-            "maxTasksPerDayPerUser": MAX_TASKS_PER_DAY_PER_USER,
-        },
-        "stats": {
-            "last1h": last_1h_stats,
-            "activeNow": active_counts,
-        },
-    }
+            "config": {
+                "maxTasksPerDayPerUser": MAX_TASKS_PER_DAY_PER_USER,
+            },
+            "stats": {
+                "last1h": last_1h_stats,
+                "activeNow": active_counts,
+            },
+        }
 
-    logger.info(f"[{request_id}] Admin health check: status=healthy")
+        logger.info(f"[{request_id}] Admin health check: status=healthy")
+        return health_response
 
-    return health_response
+    except Exception as e:
+        logger.error(f"[{request_id}] Admin health error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": "HEALTH_CHECK_ERROR",
+                "message": f"Health check failed: {str(e)}",
+                "requestId": request_id,
+            },
+            headers={"X-Request-Id": request_id},
+        )
