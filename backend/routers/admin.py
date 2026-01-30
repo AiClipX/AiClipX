@@ -7,7 +7,7 @@ Protected by X-Admin-Secret header.
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
@@ -27,7 +27,7 @@ BUILD_COMMIT = os.getenv("BUILD_COMMIT", "unknown")
 BUILD_DEPLOYED_AT = os.getenv("BUILD_DEPLOYED_AT", datetime.now(timezone.utc).isoformat())
 
 
-def _verify_admin_secret(secret: str, request_id: str) -> JSONResponse | None:
+def _verify_admin_secret(secret: str, request_id: str) -> Optional[JSONResponse]:
     """Verify admin secret header. Returns error response if invalid."""
     if not ADMIN_SECRET:
         logger.warning(f"[{request_id}] ADMIN_UNAUTHORIZED: ADMIN_SECRET not configured")
