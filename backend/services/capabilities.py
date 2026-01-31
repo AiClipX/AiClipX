@@ -11,7 +11,13 @@ import os
 from typing import Dict, Any
 
 from services.ratelimit import MAX_CONCURRENT_TASKS_PER_USER
-from services.quota import MAX_TASKS_PER_DAY_PER_USER
+from services.quota import (
+    MAX_TASKS_PER_DAY_PER_USER,
+    MAX_ASSET_UPLOAD_COUNT,
+    MAX_ASSET_TOTAL_BYTES,
+    QUOTA_ENFORCED,
+    ASSET_UPLOAD_ENABLED,
+)
 
 
 # API Version - increment on breaking changes
@@ -85,6 +91,16 @@ class CapabilityService:
         return os.getenv("SSE_EVENTS_ENABLED", "true").lower() == "true"
 
     @property
+    def quota_enforced(self) -> bool:
+        """BE-STG13-021: Whether quota enforcement is enabled."""
+        return QUOTA_ENFORCED
+
+    @property
+    def asset_upload_enabled(self) -> bool:
+        """BE-STG13-021: Whether asset upload is enabled."""
+        return ASSET_UPLOAD_ENABLED
+
+    @property
     def max_active_tasks_per_user(self) -> int:
         """Maximum concurrent tasks per user."""
         return MAX_CONCURRENT_TASKS_PER_USER
@@ -104,6 +120,16 @@ class CapabilityService:
         """Maximum prompt length for video tasks."""
         return 2000
 
+    @property
+    def max_asset_uploads(self) -> int:
+        """BE-STG13-021: Maximum asset uploads per user."""
+        return MAX_ASSET_UPLOAD_COUNT
+
+    @property
+    def max_asset_total_bytes(self) -> int:
+        """BE-STG13-021: Maximum total asset storage per user (bytes)."""
+        return MAX_ASSET_TOTAL_BYTES
+
     def get_all(self) -> Dict[str, Any]:
         """Get all capability flags as a dictionary."""
         return {
@@ -116,10 +142,14 @@ class CapabilityService:
                 "cancelEnabled": self.cancel_enabled,
                 "templatesEnabled": self.templates_enabled,
                 "sseEventsEnabled": self.sse_events_enabled,
+                "quotaEnforced": self.quota_enforced,  # BE-STG13-021
+                "assetUploadEnabled": self.asset_upload_enabled,  # BE-STG13-021
             },
             "limits": {
                 "maxActiveTasksPerUser": self.max_active_tasks_per_user,
                 "maxTasksPerDay": self.max_tasks_per_day,  # BE-STG13-018
+                "maxAssetUploads": self.max_asset_uploads,  # BE-STG13-021
+                "maxAssetTotalBytes": self.max_asset_total_bytes,  # BE-STG13-021
                 "maxTitleLength": self.max_title_length,
                 "maxPromptLength": self.max_prompt_length,
             },

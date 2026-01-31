@@ -30,6 +30,11 @@ from services.user_assets import (
     ALLOWED_TYPES,
 )
 from services.audit import audit_service
+from services.quota import (
+    check_asset_upload_quota,
+    quota_exceeded_response,
+    ASSET_UPLOAD_ENABLED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +129,27 @@ async def create_upload_url_endpoint(
         f"[{request_id}] POST /upload-urls | user={user.id[:8]}... "
         f"filename={body.filename} type={body.mimeType} size={body.sizeBytes}"
     )
+
+    # BE-STG13-021: Check if asset upload is enabled
+    if not ASSET_UPLOAD_ENABLED:
+        logger.warning(f"[{request_id}] Asset upload disabled")
+        return error_response(
+            status_code=503,
+            code="SERVICE_UNAVAILABLE",
+            message="Asset upload is currently disabled.",
+            request_id=request_id,
+        )
+
+    # BE-STG13-021: Check asset upload quota
+    quota_result = check_asset_upload_quota(user.id, body.sizeBytes)
+    if quota_result.exceeded:
+        return quota_exceeded_response(
+            quota_name=quota_result.quota_name,
+            current=quota_result.current,
+            limit=quota_result.limit,
+            request_id=request_id,
+            reset_at=quota_result.resets_at,
+        )
 
     try:
         result = await create_upload_url(

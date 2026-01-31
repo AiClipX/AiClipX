@@ -32,7 +32,12 @@ from services.capabilities import capability_service
 from services.webhook import webhook_service
 from services.error_response import error_response
 from services.audit import audit_service
-from services.quota import check_daily_quota
+from services.quota import (
+    check_daily_quota,
+    quota_exceeded_response,
+    QUOTA_NAME_DAILY_TASKS,
+    QUOTA_NAME_ACTIVE_TASKS,
+)
 from services.metrics import emit_task_created, emit_quota_exceeded
 
 # Setup logging
@@ -404,38 +409,27 @@ async def create_video_task(
         # Lock acquired → proceed to create task
         idemp_acquired = acquire_result.acquired
 
-    # BE-STG13-018: Check daily quota before creating task
+    # BE-STG13-018 + BE-STG13-021: Check daily quota before creating task
     quota_result = check_daily_quota(user.id)
     if quota_result.exceeded:
-        logger.warning(
-            f"[{request_id}] DAILY_QUOTA_EXCEEDED: user={user.id[:8]}... "
-            f"used={quota_result.used} limit={quota_result.limit}"
-        )
-        emit_quota_exceeded(user.id, quota_result.used, quota_result.limit)
-        return error_response(
-            status_code=429,
-            code="DAILY_QUOTA_EXCEEDED",
-            message="Daily task limit reached. Resets at midnight UTC.",
+        emit_quota_exceeded(user.id, quota_result.current, quota_result.limit)
+        return quota_exceeded_response(
+            quota_name=QUOTA_NAME_DAILY_TASKS,
+            current=quota_result.current,
+            limit=quota_result.limit,
             request_id=request_id,
-            details={
-                "used": quota_result.used,
-                "limit": quota_result.limit,
-                "resetsAt": quota_result.resets_at.isoformat(),
-            },
+            reset_at=quota_result.resets_at,
         )
 
-    # BE-STG13-008: Check concurrency limit before creating task
+    # BE-STG13-008 + BE-STG13-021: Check concurrency limit before creating task
     active_count = video_task_service.count_active_tasks(user.id)
     if active_count >= MAX_CONCURRENT_TASKS_PER_USER:
-        logger.warning(
-            f"[{request_id}] CONCURRENCY_LIMIT: user={user.id[:8]}... has {active_count} active tasks"
-        )
-        return error_response(
-            status_code=429,
-            code="CONCURRENCY_LIMIT_EXCEEDED",
-            message=f"Maximum {MAX_CONCURRENT_TASKS_PER_USER} concurrent tasks allowed. Wait for existing tasks to complete.",
+        return quota_exceeded_response(
+            quota_name=QUOTA_NAME_ACTIVE_TASKS,
+            current=active_count,
+            limit=MAX_CONCURRENT_TASKS_PER_USER,
             request_id=request_id,
-            details={"activeCount": active_count, "limit": MAX_CONCURRENT_TASKS_PER_USER},
+            reset_at=None,  # No auto-reset for active tasks
         )
 
     # BE-STG13-009: Check if runway engine is available
