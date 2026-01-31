@@ -21,6 +21,7 @@ from models.video_task import (
 from services.auth import AuthUser, get_current_user
 from services.supabase_client import get_user_client, get_service_client
 from services.idempotency import try_acquire_idempotency_lock, finalize_idempotency
+from services.utils import get_client_ip, mask_id
 from services.video_task_service import (
     decode_cursor,
     simulate_task_processing,
@@ -45,14 +46,6 @@ logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/video-tasks", tags=["Video Tasks"])
-
-
-def get_client_ip(request: Request) -> str:
-    """Extract client IP from request (handles proxies)."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
 
 
 def _check_task_ownership(task_id: str, user_id: str, request_id: str):
@@ -89,9 +82,8 @@ def _check_task_ownership(task_id: str, user_id: str, request_id: str):
 
     # Check ownership
     if task_owner_id != user_id:
-        owner_masked = task_owner_id[:8] + "..." if task_owner_id else "unknown"
         logger.warning(
-            f"[{request_id}] FORBIDDEN: user={user_id[:8]}... attempted to access task={task_id} owned by {owner_masked}"
+            f"[{request_id}] FORBIDDEN: user={mask_id(user_id)} attempted to access task={task_id} owned by {mask_id(task_owner_id)}"
         )
         return None, error_response(
             status_code=403,
@@ -382,7 +374,7 @@ async def create_video_task(
             "prompt": request_body.prompt,
             "engine": request_body.engine.value,
         }
-        acquire_result = try_acquire_idempotency_lock(user.id, idempotency_key, payload)
+        acquire_result = await try_acquire_idempotency_lock(user.id, idempotency_key, payload)
 
         # Payload mismatch → 409 Conflict
         if acquire_result.conflict:
@@ -512,7 +504,7 @@ async def create_video_task(
 
     # BE-STG13-016: Finalize idempotency lock with created task_id
     if idempotency_key and idemp_acquired:
-        finalize_idempotency(user.id, idempotency_key, task.id)
+        await finalize_idempotency(user.id, idempotency_key, task.id)
 
     # Schedule background processing based on engine
     if request_body.engine == VideoEngine.mock:

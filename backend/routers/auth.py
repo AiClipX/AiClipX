@@ -18,16 +18,9 @@ from services.supabase_client import get_service_client
 from services.auth import get_current_user, AuthUser
 from services.ratelimit import limiter, RATE_LIMIT_AUTH_SIGNIN
 from services.audit import audit_service
+from services.utils import get_client_ip, mask_id
 
 logger = logging.getLogger(__name__)
-
-
-def get_client_ip(request: Request) -> str:
-    """Extract client IP from request (handles proxies)."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
