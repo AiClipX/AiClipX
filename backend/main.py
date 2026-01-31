@@ -30,6 +30,7 @@ from routers import video_tasks, tts, auth, debug, capabilities, audit, assets, 
 from services.supabase_client import init_supabase, is_supabase_configured
 from services.runway import close_http_client
 from services.templates import init_templates
+from services.utils import mask_id, mask_key
 
 
 @asynccontextmanager
@@ -100,7 +101,7 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     """Return 429 with standard {code, message, requestId} format."""
     request_id = getattr(request.state, "request_id", f"req_{uuid4().hex[:8]}")
     user_id = getattr(request.state, "user_id", None)
-    user_masked = user_id[:8] + "..." if user_id else "-"
+    user_masked = mask_id(user_id)
     origin = request.headers.get("Origin", "-")
 
     logger.warning(
@@ -139,7 +140,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         # Extract headers for logging
         origin = request.headers.get("Origin", "-")
         idemp_key = request.headers.get("Idempotency-Key", "")
-        idemp_prefix = idemp_key[:8] + "..." if idemp_key else "-"
+        idemp_prefix = mask_key(idemp_key)
 
         # BE-STG13-009: Client version header
         client_version = request.headers.get("X-AiClipX-Client-Version", "")
@@ -154,7 +155,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
         # Get user_id if authenticated (set by auth dependency)
         user_id = getattr(request.state, "user_id", None)
-        user_masked = user_id[:8] + "..." if user_id else "-"
+        user_masked = mask_id(user_id)
 
         # BE-STG13-009: Include client version in log if provided
         client_ver_log = f" client={client_version}" if client_version else ""
@@ -252,7 +253,7 @@ class ErrorResponse(BaseModel):
 async def generic_exception_handler(request: Request, exc: Exception):
     request_id = getattr(request.state, "request_id", "unknown")
     user_id = getattr(request.state, "user_id", None)
-    user_masked = user_id[:8] + "..." if user_id else "-"
+    user_masked = mask_id(user_id)
     origin = request.headers.get("Origin", "-")
 
     logger.error(
@@ -275,7 +276,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
     request_id = getattr(request.state, "request_id", "unknown")
     user_id = getattr(request.state, "user_id", None)
-    user_masked = user_id[:8] + "..." if user_id else "-"
+    user_masked = mask_id(user_id)
     origin = request.headers.get("Origin", "-")
 
     # BE-STG12-005: Semantic error codes for auth errors
@@ -308,7 +309,7 @@ async def http_exception_handler(request: Request, exc: FastAPIHTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     request_id = getattr(request.state, "request_id", "unknown")
     user_id = getattr(request.state, "user_id", None)
-    user_masked = user_id[:8] + "..." if user_id else "-"
+    user_masked = mask_id(user_id)
     origin = request.headers.get("Origin", "-")
 
     errors = exc.errors()
