@@ -1,0 +1,8 @@
+{
+  "code": "IDEMPOTENCY_KEY_CONFLICT",
+  "message": "Idempotency-Key already used with different payload",
+  "requestId": "req_abc12345",
+  "details": {
+    "idempotencyKey": "my-key-12345..."
+  }
+}

@@ -8,6 +8,7 @@
       "description": "Create an eye-catching intro that grabs attention in the first 3 seconds",
       "tags": ["short", "viral", "hook", "intro"],
       "enabled": true,
+      "recommendedUseCase": "Social media reels, TikTok intros, YouTube Shorts openers",
       "defaults": {
         "title": "Viral Hook Video",
         "prompt": "Create a viral hook video about {topic}. Start with a surprising statement or question that grabs attention immediately.",
@@ -38,6 +39,7 @@
       "description": "Highlight product features with dynamic visuals and clear benefits",
       "tags": ["product", "showcase", "commercial", "marketing"],
       "enabled": true,
+      "recommendedUseCase": "E-commerce listings, product launches, feature highlights",
       "defaults": {
         "title": "Product Showcase",
         "prompt": "Create a product showcase video for {product}. Highlight key features, benefits, and what makes it unique.",
@@ -68,6 +70,7 @@
       "description": "Step-by-step guide that teaches viewers how to do something",
       "tags": ["tutorial", "howto", "educational", "explainer"],
       "enabled": true,
+      "recommendedUseCase": "How-to guides, onboarding videos, educational content",
       "defaults": {
         "title": "How To Guide",
         "prompt": "Create a tutorial video explaining how to {task}. Break it down into clear, easy-to-follow steps.",
@@ -98,6 +101,7 @@
       "description": "Tell a compelling story with emotional arc and engaging narrative",
       "tags": ["story", "narrative", "emotional", "brand"],
       "enabled": true,
+      "recommendedUseCase": "Brand stories, testimonials, documentary-style content",
       "defaults": {
         "title": "Story Video",
         "prompt": "Create a narrative video telling the story of {subject}. Include a beginning, conflict, and resolution.",
@@ -128,6 +132,7 @@
       "description": "Short promotional advertisement with clear call-to-action",
       "tags": ["promo", "ad", "commercial", "marketing", "short"],
       "enabled": true,
+      "recommendedUseCase": "Ad campaigns, sales promotions, event announcements",
       "defaults": {
         "title": "Promo Video",
         "prompt": "Create a promotional ad for {offering}. Include a hook, key benefits, and a clear call-to-action.",

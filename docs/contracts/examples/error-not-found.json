@@ -1,0 +1,6 @@
+{
+  "code": "TEMPLATE_NOT_FOUND",
+  "message": "Template 'nonexistent-id' not found",
+  "requestId": "req_abc12345",
+  "details": {}
+}

@@ -15,6 +15,8 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from services.utils import mask_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -186,7 +188,7 @@ async def get_current_user(
         jwt_token=token,
     )
 
-    logger.info(f"[{request_id}] Authenticated user: {user_id[:8]}...")
+    logger.info(f"[{request_id}] Authenticated user: {mask_id(user_id)}")
 
     # BE-STG11-006: Set user_id in request.state for structured logging
     request.state.user_id = user_id

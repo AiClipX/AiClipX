@@ -1,0 +1,6 @@
+{
+  "code": "BAD_REQUEST",
+  "message": "Invalid JSON in request body",
+  "requestId": "req_abc12345",
+  "details": {}
+}

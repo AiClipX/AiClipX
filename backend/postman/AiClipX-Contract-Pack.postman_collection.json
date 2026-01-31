@@ -1,0 +1,194 @@
+{
+  "info": {
+    "_postman_id": "be-stg13-024-contract-pack",
+    "name": "AiClipX Contract Pack",
+    "description": "Frontend integration contract tests for AiClipX API.\n\nIncludes Templates API tests with multiple locales and error scenarios.\n\nSee docs/contracts/ for full documentation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Templates API",
+      "item": [
+        {
+          "name": "List Templates (en)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/templates?locale=en&limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "templates"],
+              "query": [
+                {"key": "locale", "value": "en"},
+                {"key": "limit", "value": "5"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Templates (ko)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/templates?locale=ko&limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "templates"],
+              "query": [
+                {"key": "locale", "value": "ko"},
+                {"key": "limit", "value": "5"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Templates (zh)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/templates?locale=zh&limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "templates"],
+              "query": [
+                {"key": "locale", "value": "zh"},
+                {"key": "limit", "value": "5"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Templates with Tag Filter",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/templates?tag=product&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "templates"],
+              "query": [
+                {"key": "tag", "value": "product"},
+                {"key": "limit", "value": "10"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Templates with Search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/templates?q=promo&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "templates"],
+              "query": [
+                {"key": "q", "value": "promo"},
+                {"key": "limit", "value": "10"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Template Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/templates/product-showcase?locale=en",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "templates", "product-showcase"],
+              "query": [
+                {"key": "locale", "value": "en"}
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Template - NOT_FOUND (Error Test)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/templates/nonexistent-template-id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "templates", "nonexistent-template-id"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Health & Debug",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Debug CORS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Origin", "value": "http://localhost:3000", "type": "text"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/debug/cors",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "debug", "cors"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Log requestId for all responses",
+          "const jsonData = pm.response.json();",
+          "if (jsonData.requestId) {",
+          "    console.log('requestId:', jsonData.requestId);",
+          "}",
+          "",
+          "// Check response has expected structure",
+          "pm.test('Response has valid structure', function () {",
+          "    const status = pm.response.code;",
+          "    if (status >= 400) {",
+          "        pm.expect(jsonData).to.have.property('code');",
+          "        pm.expect(jsonData).to.have.property('message');",
+          "        pm.expect(jsonData).to.have.property('requestId');",
+          "    }",
+          "});"
+        ]
+      }
+    }
+  ]
+}

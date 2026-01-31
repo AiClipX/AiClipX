@@ -1,0 +1,9 @@
+{
+  "code": "SERVICE_UNAVAILABLE",
+  "message": "Runway engine is temporarily unavailable",
+  "requestId": "req_abc12345",
+  "details": {
+    "feature": "engineRunway",
+    "suggestion": "Use engine=mock for testing"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "code": "UNAUTHORIZED",
+  "message": "Invalid token: Signature verification failed",
+  "requestId": "req_abc12345",
+  "details": {}
+}

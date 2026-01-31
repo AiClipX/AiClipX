@@ -1,0 +1,31 @@
+{
+  "id": "product-showcase",
+  "version": 1,
+  "name": "Product Showcase",
+  "description": "Highlight product features with dynamic visuals and clear benefits",
+  "tags": ["product", "showcase", "commercial", "marketing"],
+  "enabled": true,
+  "recommendedUseCase": "E-commerce listings, product launches, feature highlights",
+  "defaults": {
+    "title": "Product Showcase",
+    "prompt": "Create a product showcase video for {product}. Highlight key features, benefits, and what makes it unique.",
+    "params": {
+      "duration": 15,
+      "style": "professional"
+    }
+  },
+  "regionPack": {
+    "en": {
+      "name": "Product Showcase",
+      "description": "Highlight product features with dynamic visuals and clear benefits"
+    },
+    "ko": {
+      "name": "제품 쇼케이스",
+      "description": "역동적인 비주얼과 명확한 혜택으로 제품 기능을 강조하세요"
+    },
+    "zh": {
+      "name": "产品展示",
+      "description": "通过动态视觉效果和清晰的优势突出产品功能"
+    }
+  }
+}
