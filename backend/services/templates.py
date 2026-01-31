@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-BE-STG13-014 + BE-STG13-022: Template catalog service.
+BE-STG13-014 + BE-STG13-022 + BE-STG13-023: Template catalog service.
 
 Provides server-side template management with:
-- JSON-based storage (loaded at startup)
+- JSON-based storage (loaded at startup) as source of truth
+- DB override table for runtime toggles (BE-STG13-023)
 - In-memory caching with ETag generation
 - Multi-language support (regionPack)
 - Tag/search filtering
@@ -15,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,6 +44,7 @@ class TemplateService:
     Template catalog service with in-memory caching.
 
     Templates are loaded from JSON file at startup and cached.
+    DB overrides are applied for runtime toggle capability.
     ETag is generated from content hash for HTTP caching.
     """
 
@@ -51,8 +54,19 @@ class TemplateService:
         self._etag: str = ""
         self._registry_version: int = 0
         self._loaded: bool = False
+        self._overrides_applied: bool = False
 
     def load(self) -> None:
+        """Load templates from JSON file + apply DB overrides."""
+        self._load_from_json()
+        self._apply_overrides()
+
+        logger.info(
+            f"Templates loaded: {len(self._templates)} templates, "
+            f"registry v{self._registry_version}"
+        )
+
+    def _load_from_json(self) -> None:
         """Load templates from JSON file into memory."""
         if not TEMPLATES_FILE.exists():
             logger.warning(f"Templates file not found: {TEMPLATES_FILE}")
@@ -80,17 +94,57 @@ class TemplateService:
             self._etag = self._generate_etag(content)
             self._loaded = True
 
-            logger.info(
-                f"Loaded {len(self._templates)} templates "
-                f"(registry v{self._registry_version}, etag={self._etag[:8]}...)"
-            )
-
         except Exception as e:
-            logger.error(f"Failed to load templates: {e}")
+            logger.error(f"Failed to load templates from JSON: {e}")
             self._templates = {}
             self._template_order = []
             self._etag = self._generate_etag("{}")
             self._loaded = True
+
+    def _load_overrides_from_db(self) -> Dict[str, dict]:
+        """
+        BE-STG13-023: Load overrides from DB.
+
+        Returns dict of {template_id: {enabled, updated_at, updated_by}}
+        """
+        try:
+            from services.supabase_client import get_service_client
+            client = get_service_client()
+
+            response = client.table("template_overrides").select("*").execute()
+            overrides = {row["template_id"]: row for row in (response.data or [])}
+
+            if overrides:
+                logger.debug(f"Loaded {len(overrides)} template overrides from DB")
+
+            return overrides
+
+        except Exception as e:
+            # Table might not exist yet, or DB error - just log and continue
+            logger.debug(f"Template overrides not available: {e}")
+            return {}
+
+    def _apply_overrides(self) -> None:
+        """
+        BE-STG13-023: Apply DB overrides to loaded templates.
+
+        Only 'enabled' field is overridden for now.
+        """
+        overrides = self._load_overrides_from_db()
+
+        for template_id, override in overrides.items():
+            if template_id in self._templates:
+                original_enabled = self._templates[template_id].get("enabled", True)
+                new_enabled = override.get("enabled", True)
+
+                if original_enabled != new_enabled:
+                    self._templates[template_id]["enabled"] = new_enabled
+                    logger.info(
+                        f"Template override applied: {template_id} "
+                        f"enabled={new_enabled} (was {original_enabled})"
+                    )
+
+        self._overrides_applied = True
 
     def _generate_etag(self, content: str) -> str:
         """Generate ETag from content hash."""
@@ -100,6 +154,16 @@ class TemplateService:
         """Ensure templates are loaded."""
         if not self._loaded:
             self.load()
+
+    def reload(self) -> None:
+        """
+        BE-STG13-023: Force reload templates from source + DB overrides.
+
+        Called after admin toggle or for ops reload.
+        """
+        self._loaded = False
+        self._overrides_applied = False
+        self.load()
 
     @property
     def etag(self) -> str:
@@ -278,9 +342,87 @@ class TemplateService:
         return list(self._templates.keys())
 
     def template_exists(self, template_id: str) -> bool:
-        """Check if template exists."""
+        """Check if template exists (in JSON source)."""
         self._ensure_loaded()
         return template_id in self._templates
+
+    def is_template_enabled(self, template_id: str) -> bool:
+        """Check if template is currently enabled."""
+        self._ensure_loaded()
+        template = self._templates.get(template_id)
+        if not template:
+            return False
+        return template.get("enabled", True)
+
+    def set_enabled(
+        self,
+        template_id: str,
+        enabled: bool,
+        updated_by: str = "admin",
+    ) -> bool:
+        """
+        BE-STG13-023: Toggle template enabled status via DB override.
+
+        Args:
+            template_id: Template ID to toggle
+            enabled: New enabled state
+            updated_by: Identifier of who made the change
+
+        Returns:
+            True if successful, False if template not found
+        """
+        if not self.template_exists(template_id):
+            return False
+
+        try:
+            from services.supabase_client import get_service_client
+            client = get_service_client()
+
+            # Upsert override
+            client.table("template_overrides").upsert({
+                "template_id": template_id,
+                "enabled": enabled,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_by": updated_by,
+            }).execute()
+
+            logger.info(
+                f"Template override saved: {template_id} enabled={enabled} "
+                f"by={updated_by}"
+            )
+
+            # Reload to apply changes
+            self.reload()
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save template override: {e}")
+            return False
+
+    def get_override_info(self, template_id: str) -> Optional[Dict[str, Any]]:
+        """
+        BE-STG13-023: Get override info for a template.
+
+        Returns None if no override exists.
+        """
+        try:
+            from services.supabase_client import get_service_client
+            client = get_service_client()
+
+            response = (
+                client.table("template_overrides")
+                .select("*")
+                .eq("template_id", template_id)
+                .execute()
+            )
+
+            if response.data:
+                return response.data[0]
+            return None
+
+        except Exception as e:
+            logger.debug(f"Failed to get override info: {e}")
+            return None
 
 
 # Singleton instance

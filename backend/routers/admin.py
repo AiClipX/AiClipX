@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-BE-STG13-018: Admin endpoints for system health and monitoring.
+BE-STG13-018 + BE-STG13-023: Admin endpoints for system health and monitoring.
 
 Protected by X-Admin-Secret header.
+
+BE-STG13-023: Added template management endpoints.
 """
 import logging
 import os
@@ -15,6 +17,7 @@ from fastapi.responses import JSONResponse
 from services.supabase_client import get_service_client
 from services.resilience import runway_circuit_breaker
 from services.quota import MAX_TASKS_PER_DAY_PER_USER
+from services.templates import template_service
 
 logger = logging.getLogger(__name__)
 
@@ -499,6 +502,191 @@ async def admin_health(
             content={
                 "code": "HEALTH_CHECK_ERROR",
                 "message": f"Health check failed: {str(e)}",
+                "requestId": request_id,
+            },
+            headers={"X-Request-Id": request_id},
+        )
+
+
+# =============================================================================
+# BE-STG13-023: Template Management Endpoints
+# =============================================================================
+
+
+@router.post("/templates/{template_id}/toggle")
+async def toggle_template(
+    request: Request,
+    template_id: str,
+    enabled: bool = Query(..., description="Enable or disable template"),
+    x_admin_secret: str = Header(default="", alias="X-Admin-Secret"),
+):
+    """
+    BE-STG13-023: Toggle template enabled status.
+
+    Sets a runtime override for the template's enabled flag.
+    The override is stored in DB and persists across restarts.
+
+    **Auth:** Requires X-Admin-Secret header
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(
+        f"[{request_id}] POST /admin/templates/{template_id}/toggle?enabled={enabled}"
+    )
+
+    # Verify admin secret
+    error_resp = _verify_admin_secret(x_admin_secret, request_id)
+    if error_resp:
+        return error_resp
+
+    # Check template exists
+    if not template_service.template_exists(template_id):
+        logger.warning(f"[{request_id}] Template not found: {template_id}")
+        return JSONResponse(
+            status_code=404,
+            content={
+                "code": "TEMPLATE_NOT_FOUND",
+                "message": f"Template '{template_id}' not found",
+                "requestId": request_id,
+            },
+            headers={"X-Request-Id": request_id},
+        )
+
+    # Apply toggle
+    success = template_service.set_enabled(
+        template_id=template_id,
+        enabled=enabled,
+        updated_by="admin",
+    )
+
+    if not success:
+        logger.error(f"[{request_id}] Failed to toggle template: {template_id}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": "TOGGLE_FAILED",
+                "message": "Failed to toggle template",
+                "requestId": request_id,
+            },
+            headers={"X-Request-Id": request_id},
+        )
+
+    logger.info(f"[{request_id}] Template {template_id} toggled: enabled={enabled}")
+
+    return {
+        "templateId": template_id,
+        "enabled": enabled,
+        "message": f"Template {'enabled' if enabled else 'disabled'} successfully",
+        "requestId": request_id,
+    }
+
+
+@router.post("/templates/reload")
+async def reload_templates(
+    request: Request,
+    x_admin_secret: str = Header(default="", alias="X-Admin-Secret"),
+):
+    """
+    BE-STG13-023: Force reload templates from source.
+
+    Reloads templates from JSON file and reapplies DB overrides.
+    Use this after updating templates.json or to refresh cache.
+
+    **Auth:** Requires X-Admin-Secret header
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] POST /admin/templates/reload")
+
+    # Verify admin secret
+    error_resp = _verify_admin_secret(x_admin_secret, request_id)
+    if error_resp:
+        return error_resp
+
+    try:
+        template_service.reload()
+
+        count = len(template_service.get_template_ids())
+        version = template_service.registry_version
+
+        logger.info(
+            f"[{request_id}] Templates reloaded by admin: "
+            f"{count} templates, registry v{version}"
+        )
+
+        return {
+            "message": "Templates reloaded successfully",
+            "count": count,
+            "registryVersion": version,
+            "requestId": request_id,
+        }
+
+    except Exception as e:
+        logger.error(f"[{request_id}] Templates reload error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": "RELOAD_FAILED",
+                "message": f"Failed to reload templates: {str(e)}",
+                "requestId": request_id,
+            },
+            headers={"X-Request-Id": request_id},
+        )
+
+
+@router.get("/templates/status")
+async def templates_status(
+    request: Request,
+    x_admin_secret: str = Header(default="", alias="X-Admin-Secret"),
+):
+    """
+    BE-STG13-023: Get templates status overview.
+
+    Returns list of all templates with their current enabled status
+    and any active overrides.
+
+    **Auth:** Requires X-Admin-Secret header
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.info(f"[{request_id}] GET /admin/templates/status")
+
+    # Verify admin secret
+    error_resp = _verify_admin_secret(x_admin_secret, request_id)
+    if error_resp:
+        return error_resp
+
+    try:
+        template_ids = template_service.get_template_ids()
+        templates_status = []
+
+        for tid in template_ids:
+            enabled = template_service.is_template_enabled(tid)
+            override = template_service.get_override_info(tid)
+
+            templates_status.append({
+                "id": tid,
+                "enabled": enabled,
+                "hasOverride": override is not None,
+                "overrideInfo": {
+                    "updatedAt": override.get("updated_at"),
+                    "updatedBy": override.get("updated_by"),
+                } if override else None,
+            })
+
+        return {
+            "registryVersion": template_service.registry_version,
+            "totalTemplates": len(template_ids),
+            "enabledCount": sum(1 for t in templates_status if t["enabled"]),
+            "disabledCount": sum(1 for t in templates_status if not t["enabled"]),
+            "templates": templates_status,
+            "requestId": request_id,
+        }
+
+    except Exception as e:
+        logger.error(f"[{request_id}] Templates status error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": "STATUS_ERROR",
+                "message": f"Failed to get templates status: {str(e)}",
                 "requestId": request_id,
             },
             headers={"X-Request-Id": request_id},

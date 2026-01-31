@@ -165,6 +165,9 @@ async def list_templates(
     # Add cache headers
     add_cache_headers(response, etag)
 
+    # BE-STG13-023: Add registry version header
+    response.headers["X-Registry-Version"] = str(template_service.registry_version)
+
     return {
         "data": templates,
         "nextCursor": next_cursor,
@@ -227,6 +230,9 @@ async def get_template(
 
         # Add cache headers
         add_cache_headers(response, etag)
+
+        # BE-STG13-023: Add registry version header
+        response.headers["X-Registry-Version"] = str(template_service.registry_version)
 
         return template
 
