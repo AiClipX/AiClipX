@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-BE-STG13-014: Template catalog API endpoints.
+BE-STG13-014 + BE-STG13-022: Template catalog API endpoints.
 
 Public endpoints (no auth required):
-- GET /api/templates - List templates with filtering
+- GET /api/templates - List templates with filtering and pagination
 - GET /api/templates/{id} - Get single template
+
+BE-STG13-022 Contract:
+- Query params: locale, tag, q, limit, cursor
+- Response: { data: [...], nextCursor: "..." }
+- Error: { code, message, requestId }
+- Degradation: Empty list (200) when unavailable
 """
 
 import logging
@@ -17,7 +23,9 @@ from pydantic import BaseModel
 from services.templates import (
     template_service,
     TemplateNotFoundError,
-    DEFAULT_LANG,
+    DEFAULT_LOCALE,
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
 )
 from services.error_response import error_response
 
@@ -32,24 +40,6 @@ CACHE_MAX_AGE = 3600  # 1 hour
 def is_templates_enabled() -> bool:
     """Check if templates feature is enabled."""
     return os.getenv("TEMPLATES_ENABLED", "true").lower() == "true"
-
-
-def check_templates_enabled(request: Request):
-    """
-    Check if templates feature is enabled.
-
-    Returns error response if disabled.
-    """
-    if not is_templates_enabled():
-        request_id = getattr(request.state, "request_id", "unknown")
-        logger.info(f"[{request_id}] Templates disabled, returning 503")
-        return error_response(
-            status_code=503,
-            code="TEMPLATES_DISABLED",
-            message="Template catalog is currently disabled",
-            request_id=request_id,
-        )
-    return None
 
 
 def add_cache_headers(response: Response, etag: str) -> None:
@@ -85,53 +75,70 @@ class TemplateResponse(BaseModel):
     description: str
     tags: List[str]
     enabled: bool
+    recommendedUseCase: Optional[str] = None
     defaults: TemplateDefaults
     regionPack: Dict[str, TemplateRegionPack]
 
 
-class TemplateListMeta(BaseModel):
-    total: int
-    lang: str
-    registryVersion: int
-
-
 class TemplateListResponse(BaseModel):
+    """BE-STG13-022: Paginated template list."""
     data: List[Dict[str, Any]]
-    meta: TemplateListMeta
+    nextCursor: Optional[str] = None
 
 
 @router.get(
     "",
     response_model=TemplateListResponse,
     responses={
-        200: {"description": "Template list"},
+        200: {"description": "Template list (empty if disabled)"},
         304: {"description": "Not modified (ETag match)"},
-        503: {"description": "Templates disabled"},
     },
 )
 async def list_templates(
     request: Request,
     response: Response,
-    tag: Optional[str] = Query(default=None, description="Filter by tag"),
-    search: Optional[str] = Query(default=None, description="Search in name/description"),
-    lang: str = Query(default=DEFAULT_LANG, description="Language code (en, ko, zh)"),
+    locale: str = Query(
+        default=DEFAULT_LOCALE,
+        description="Language code (en, ko, zh)"
+    ),
+    tag: Optional[str] = Query(
+        default=None,
+        description="Filter by tag"
+    ),
+    q: Optional[str] = Query(
+        default=None,
+        description="Search in name/description"
+    ),
+    limit: int = Query(
+        default=DEFAULT_LIMIT,
+        ge=1,
+        le=MAX_LIMIT,
+        description="Results per page"
+    ),
+    cursor: Optional[str] = Query(
+        default=None,
+        description="Pagination cursor"
+    ),
 ):
     """
-    List available templates with optional filtering.
+    List available templates with optional filtering and pagination.
+
+    BE-STG13-022 Contract:
+    - Response: { data: [...], nextCursor: "..." }
+    - Degradation: Returns empty list if templates disabled
 
     Supports:
     - Tag filtering: ?tag=viral
-    - Search: ?search=hook
-    - Language: ?lang=ko (defaults to 'en')
-
-    Returns cached response with ETag for efficient polling.
+    - Search: ?q=hook
+    - Language: ?locale=ko (defaults to 'en')
+    - Pagination: ?limit=10&cursor=xxx
     """
     request_id = getattr(request.state, "request_id", "unknown")
 
-    # Check if feature is enabled
-    disabled_response = check_templates_enabled(request)
-    if disabled_response:
-        return disabled_response
+    # BE-STG13-022: Degradation - return empty list if disabled
+    if not is_templates_enabled():
+        logger.info(f"[{request_id}] Templates disabled, returning empty list")
+        return {"data": [], "nextCursor": None}
 
     # Check ETag for 304 response
     etag = template_service.etag
@@ -140,16 +147,19 @@ async def list_templates(
         add_cache_headers(response, etag)
         return Response(status_code=304, headers=dict(response.headers))
 
-    # Get templates
-    templates, total = template_service.list_templates(
+    # Get templates with pagination
+    templates, next_cursor = template_service.list_templates(
         tag=tag,
-        search=search,
-        lang=lang,
+        q=q,
+        locale=locale,
+        limit=limit,
+        cursor=cursor,
     )
 
     logger.info(
-        f"[{request_id}] GET /templates | tag={tag or '-'} search={search or '-'} "
-        f"lang={lang} count={total}"
+        f"[{request_id}] GET /templates | locale={locale} tag={tag or '-'} "
+        f"q={q or '-'} limit={limit} cursor={cursor[:8] + '...' if cursor else '-'} "
+        f"count={len(templates)} hasMore={next_cursor is not None}"
     )
 
     # Add cache headers
@@ -157,11 +167,7 @@ async def list_templates(
 
     return {
         "data": templates,
-        "meta": {
-            "total": total,
-            "lang": lang,
-            "registryVersion": template_service.registry_version,
-        },
+        "nextCursor": next_cursor,
     }
 
 
@@ -179,19 +185,31 @@ async def get_template(
     request: Request,
     response: Response,
     template_id: str,
-    lang: str = Query(default=DEFAULT_LANG, description="Language code (en, ko, zh)"),
+    locale: str = Query(
+        default=DEFAULT_LOCALE,
+        description="Language code (en, ko, zh)"
+    ),
 ):
     """
     Get single template by ID.
 
-    Returns full template with localized name/description based on lang parameter.
+    BE-STG13-022 Contract:
+    - Response: Template object with all fields
+    - Error: { code, message, requestId }
+
+    Returns full template with localized name/description based on locale parameter.
     """
     request_id = getattr(request.state, "request_id", "unknown")
 
     # Check if feature is enabled
-    disabled_response = check_templates_enabled(request)
-    if disabled_response:
-        return disabled_response
+    if not is_templates_enabled():
+        logger.info(f"[{request_id}] Templates disabled, returning 503")
+        return error_response(
+            status_code=503,
+            code="TEMPLATES_DISABLED",
+            message="Template catalog is currently disabled",
+            request_id=request_id,
+        )
 
     # Check ETag for 304 response
     etag = template_service.etag
@@ -201,10 +219,10 @@ async def get_template(
         return Response(status_code=304, headers=dict(response.headers))
 
     try:
-        template = template_service.get_template(template_id, lang=lang)
+        template = template_service.get_template(template_id, locale=locale)
 
         logger.info(
-            f"[{request_id}] GET /templates/{template_id} | lang={lang}"
+            f"[{request_id}] GET /templates/{template_id} | locale={locale}"
         )
 
         # Add cache headers
