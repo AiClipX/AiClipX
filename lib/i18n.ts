@@ -142,6 +142,7 @@ export interface TranslationKeys {
   'error.notFound': string;
   'error.validationError': string;
   'error.tooManyRequests': string;
+  'error.serviceUnavailable': string;
   'error.unknown': string;
   'error.requestId': string;
   'error.whatToDo': string;
@@ -171,6 +172,7 @@ export interface TranslationKeys {
   'loading.app': string;
   'loading.redirecting': string;
   'loading.validatingSession': string;
+  'loading.checkingUpdates': string;
   
   // Success messages
   'success.videoCreated': string;
@@ -232,6 +234,59 @@ export interface TranslationKeys {
   'publish.videoNotReady': string;
   'publish.videoNotReadyDescription': string;
   'publish.videoAccessIssue': string;
+
+  // Assets upload
+  'assets.upload.title': string;
+  'assets.upload.description': string;
+  'assets.upload.selectFiles': string;
+  'assets.upload.maxFiles': string;
+  'assets.upload.maxSize': string;
+  'assets.upload.supportedTypes': string;
+  'assets.list.title': string;
+  'assets.error.unsupportedType': string;
+  'assets.error.fileTooLarge': string;
+  'assets.error.tooManyFiles': string;
+  'assets.error.uploadFailed': string;
+  'assets.success.uploaded': string;
+  'assets.status.pending': string;
+  'assets.status.uploading': string;
+  'assets.status.completed': string;
+  'assets.status.failed': string;
+
+  // Templates
+  'templates.search.placeholder': string;
+  'templates.search.clear': string;
+  'templates.search.searching': string;
+  'templates.filters.title': string;
+  'templates.filters.searchPlaceholder': string;
+  'templates.filters.availableTags': string;
+  'templates.filters.noTagsFound': string;
+  'templates.filters.tryDifferentSearch': string;
+  'templates.filters.noTagsAvailable': string;
+  'templates.filters.loadingTags': string;
+  'templates.filters.noFiltersAvailable': string;
+  'templates.list.recentTemplates': string;
+  'templates.list.allTemplates': string;
+  'templates.list.templates': string;
+  'templates.list.noTemplatesAvailable': string;
+  'templates.list.noAdditionalTemplates': string;
+  'templates.list.loadingMore': string;
+  'templates.list.failedToLoad': string;
+  'templates.card.recent': string;
+  'templates.card.useCase': string;
+  'templates.card.selectTemplate': string;
+  'templates.error.loadFailed': string;
+  'templates.error.loadFailedWithRetry': string;
+  'templates.error.selectionFailed': string;
+  'templates.error.gracefulDegradation.title': string;
+  'templates.error.gracefulDegradation.description': string;
+  'templates.error.networkUnavailable': string;
+  'templates.error.serverUnavailable': string;
+  'templates.error.offline': string;
+  'templates.empty.noTemplatesTitle': string;
+  'templates.empty.noTemplatesDescription': string;
+  'templates.empty.noSearchResultsTitle': string;
+  'templates.empty.noSearchResultsDescription': string;
 }
 
 const translations: Record<SupportedLanguage, TranslationKeys> = {
@@ -376,6 +431,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'error.notFound': 'Resource not found',
     'error.validationError': 'Invalid data',
     'error.tooManyRequests': 'Too many requests, please try again later',
+    'error.serviceUnavailable': 'Service temporarily unavailable, please try again later',
     'error.unknown': 'An unknown error occurred',
     'error.requestId': 'Request ID (for support)',
     'error.whatToDo': 'What to do next:',
@@ -405,6 +461,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'loading.app': 'Loading...',
     'loading.redirecting': 'Redirecting...',
     'loading.validatingSession': 'Validating session...',
+    'loading.checkingUpdates': 'Checking for updates...',
     
     // Success messages
     'success.videoCreated': 'Video task created successfully',
@@ -466,6 +523,59 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'publish.videoNotReady': 'Video Not Ready for Publishing',
     'publish.videoNotReadyDescription': 'This video is currently {status} and cannot be published yet. Please wait for the video to complete processing.',
     'publish.videoAccessIssue': 'Video Access Issue',
+
+    // Assets upload
+    'assets.upload.title': 'Upload Media Assets',
+    'assets.upload.description': 'Drag and drop files here or click to select',
+    'assets.upload.selectFiles': 'Select Files',
+    'assets.upload.maxFiles': 'Maximum {max} files',
+    'assets.upload.maxSize': 'Maximum {max}MB per file',
+    'assets.upload.supportedTypes': 'Supports images (JPG, PNG, GIF, WebP) and videos (MP4, WebM, MOV, AVI)',
+    'assets.list.title': 'Selected Assets',
+    'assets.error.unsupportedType': 'File type not supported',
+    'assets.error.fileTooLarge': 'File size exceeds {max}MB limit',
+    'assets.error.tooManyFiles': 'Cannot upload more than {max} files',
+    'assets.error.uploadFailed': 'Upload failed',
+    'assets.success.uploaded': 'Asset uploaded successfully',
+    'assets.status.pending': 'Pending',
+    'assets.status.uploading': 'Uploading',
+    'assets.status.completed': 'Completed',
+    'assets.status.failed': 'Failed',
+
+    // Templates
+    'templates.search.placeholder': 'Search templates by name or description...',
+    'templates.search.clear': 'Clear search',
+    'templates.search.searching': 'Searching...',
+    'templates.filters.title': 'Filter by Tags',
+    'templates.filters.searchPlaceholder': 'Search tags...',
+    'templates.filters.availableTags': 'Available Tags',
+    'templates.filters.noTagsFound': 'No tags found',
+    'templates.filters.tryDifferentSearch': 'Try a different search term',
+    'templates.filters.noTagsAvailable': 'No tags available',
+    'templates.filters.loadingTags': 'Loading tags...',
+    'templates.filters.noFiltersAvailable': 'No filters available',
+    'templates.list.recentTemplates': 'Recently Used Templates',
+    'templates.list.allTemplates': 'All Templates',
+    'templates.list.templates': 'Templates',
+    'templates.list.noTemplatesAvailable': 'Templates will appear here once they are available.',
+    'templates.list.noAdditionalTemplates': 'No additional templates available',
+    'templates.list.loadingMore': 'Loading more templates...',
+    'templates.list.failedToLoad': 'Failed to load templates',
+    'templates.card.recent': 'Recent',
+    'templates.card.useCase': 'Use Case',
+    'templates.card.selectTemplate': 'Select template: {name}',
+    'templates.error.loadFailed': 'Failed to load templates',
+    'templates.error.loadFailedWithRetry': 'Failed to load templates. Please try again.',
+    'templates.error.selectionFailed': 'Failed to select template',
+    'templates.error.gracefulDegradation.title': 'Templates unavailable, but you can still create videos',
+    'templates.error.gracefulDegradation.description': 'The template system is temporarily unavailable, but you can continue creating videos manually using the form below.',
+    'templates.error.networkUnavailable': 'Network connection unavailable',
+    'templates.error.serverUnavailable': 'Template server is temporarily unavailable',
+    'templates.error.offline': 'You appear to be offline',
+    'templates.empty.noTemplatesTitle': 'No Templates Available',
+    'templates.empty.noTemplatesDescription': 'Templates will appear here once they are available.',
+    'templates.empty.noSearchResultsTitle': 'No templates found',
+    'templates.empty.noSearchResultsDescription': 'Try adjusting your search terms or filters.',
   },
   
   ko: {
@@ -609,6 +719,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'error.notFound': '리소스를 찾을 수 없습니다',
     'error.validationError': '잘못된 데이터',
     'error.tooManyRequests': '너무 많은 요청, 나중에 다시 시도해주세요',
+    'error.serviceUnavailable': '서비스를 일시적으로 사용할 수 없습니다. 나중에 다시 시도해주세요',
     'error.unknown': '알 수 없는 오류가 발생했습니다',
     'error.requestId': '요청 ID (지원용)',
     'error.whatToDo': '다음 단계:',
@@ -638,6 +749,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'loading.app': '로딩중...',
     'loading.redirecting': '리디렉션중...',
     'loading.validatingSession': '세션 검증중...',
+    'loading.checkingUpdates': '업데이트 확인중...',
     
     // Success messages
     'success.videoCreated': '비디오 작업이 성공적으로 생성되었습니다',
@@ -699,6 +811,59 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'publish.videoNotReady': '게시할 수 없는 비디오',
     'publish.videoNotReadyDescription': '이 비디오는 현재 {status} 상태이며 아직 게시할 수 없습니다. 비디오 처리가 완료될 때까지 기다려주세요.',
     'publish.videoAccessIssue': '비디오 액세스 문제',
+
+    // Assets upload
+    'assets.upload.title': '미디어 에셋 업로드',
+    'assets.upload.description': '파일을 여기에 드래그하거나 클릭하여 선택하세요',
+    'assets.upload.selectFiles': '파일 선택',
+    'assets.upload.maxFiles': '최대 {max}개 파일',
+    'assets.upload.maxSize': '파일당 최대 {max}MB',
+    'assets.upload.supportedTypes': '이미지(JPG, PNG, GIF, WebP) 및 비디오(MP4, WebM, MOV, AVI) 지원',
+    'assets.list.title': '선택된 에셋',
+    'assets.error.unsupportedType': '지원되지 않는 파일 형식',
+    'assets.error.fileTooLarge': '파일 크기가 {max}MB 제한을 초과합니다',
+    'assets.error.tooManyFiles': '{max}개 이상의 파일을 업로드할 수 없습니다',
+    'assets.error.uploadFailed': '업로드 실패',
+    'assets.success.uploaded': '에셋이 성공적으로 업로드되었습니다',
+    'assets.status.pending': '대기중',
+    'assets.status.uploading': '업로드중',
+    'assets.status.completed': '완료',
+    'assets.status.failed': '실패',
+
+    // Templates
+    'templates.search.placeholder': '이름이나 설명으로 템플릿 검색...',
+    'templates.search.clear': '검색 지우기',
+    'templates.search.searching': '검색중...',
+    'templates.filters.title': '태그로 필터링',
+    'templates.filters.searchPlaceholder': '태그 검색...',
+    'templates.filters.availableTags': '사용 가능한 태그',
+    'templates.filters.noTagsFound': '태그를 찾을 수 없음',
+    'templates.filters.tryDifferentSearch': '다른 검색어를 시도해보세요',
+    'templates.filters.noTagsAvailable': '사용 가능한 태그 없음',
+    'templates.filters.loadingTags': '태그 로딩중...',
+    'templates.filters.noFiltersAvailable': '사용 가능한 필터 없음',
+    'templates.list.recentTemplates': '최근 사용한 템플릿',
+    'templates.list.allTemplates': '모든 템플릿',
+    'templates.list.templates': '템플릿',
+    'templates.list.noTemplatesAvailable': '템플릿이 사용 가능해지면 여기에 표시됩니다.',
+    'templates.list.noAdditionalTemplates': '추가 템플릿이 없습니다',
+    'templates.list.loadingMore': '더 많은 템플릿 로딩중...',
+    'templates.list.failedToLoad': '템플릿 로드 실패',
+    'templates.card.recent': '최근',
+    'templates.card.useCase': '사용 사례',
+    'templates.card.selectTemplate': '템플릿 선택: {name}',
+    'templates.error.loadFailed': '템플릿 로드 실패',
+    'templates.error.loadFailedWithRetry': '템플릿 로드에 실패했습니다. 다시 시도해주세요.',
+    'templates.error.selectionFailed': '템플릿 선택 실패',
+    'templates.error.gracefulDegradation.title': '템플릿을 사용할 수 없지만 여전히 비디오를 만들 수 있습니다',
+    'templates.error.gracefulDegradation.description': '템플릿 시스템을 일시적으로 사용할 수 없지만 아래 양식을 사용하여 수동으로 비디오를 계속 만들 수 있습니다.',
+    'templates.error.networkUnavailable': '네트워크 연결을 사용할 수 없음',
+    'templates.error.serverUnavailable': '템플릿 서버를 일시적으로 사용할 수 없음',
+    'templates.error.offline': '오프라인 상태인 것 같습니다',
+    'templates.empty.noTemplatesTitle': '사용 가능한 템플릿 없음',
+    'templates.empty.noTemplatesDescription': '템플릿이 사용 가능해지면 여기에 표시됩니다.',
+    'templates.empty.noSearchResultsTitle': '템플릿을 찾을 수 없음',
+    'templates.empty.noSearchResultsDescription': '검색어나 필터를 조정해보세요.',
   },
   
   zh: {
@@ -842,6 +1007,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'error.notFound': '未找到资源',
     'error.validationError': '无效数据',
     'error.tooManyRequests': '请求过多，请稍后重试',
+    'error.serviceUnavailable': '服务暂时不可用，请稍后重试',
     'error.unknown': '发生未知错误',
     'error.requestId': '请求ID（用于支持）',
     'error.whatToDo': '下一步操作：',
@@ -871,6 +1037,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'loading.app': '加载中...',
     'loading.redirecting': '重定向中...',
     'loading.validatingSession': '验证会话中...',
+    'loading.checkingUpdates': '检查更新中...',
     
     // Success messages
     'success.videoCreated': '视频任务创建成功',
@@ -932,6 +1099,59 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'publish.videoNotReady': '视频尚未准备好发布',
     'publish.videoNotReadyDescription': '此视频当前状态为{status}，尚无法发布。请等待视频处理完成。',
     'publish.videoAccessIssue': '视频访问问题',
+
+    // Assets upload
+    'assets.upload.title': '上传媒体资产',
+    'assets.upload.description': '将文件拖放到此处或点击选择',
+    'assets.upload.selectFiles': '选择文件',
+    'assets.upload.maxFiles': '最多{max}个文件',
+    'assets.upload.maxSize': '每个文件最大{max}MB',
+    'assets.upload.supportedTypes': '支持图片(JPG, PNG, GIF, WebP)和视频(MP4, WebM, MOV, AVI)',
+    'assets.list.title': '已选择的资产',
+    'assets.error.unsupportedType': '不支持的文件类型',
+    'assets.error.fileTooLarge': '文件大小超过{max}MB限制',
+    'assets.error.tooManyFiles': '不能上传超过{max}个文件',
+    'assets.error.uploadFailed': '上传失败',
+    'assets.success.uploaded': '资产上传成功',
+    'assets.status.pending': '等待中',
+    'assets.status.uploading': '上传中',
+    'assets.status.completed': '已完成',
+    'assets.status.failed': '失败',
+
+    // Templates
+    'templates.search.placeholder': '按名称或描述搜索模板...',
+    'templates.search.clear': '清除搜索',
+    'templates.search.searching': '搜索中...',
+    'templates.filters.title': '按标签筛选',
+    'templates.filters.searchPlaceholder': '搜索标签...',
+    'templates.filters.availableTags': '可用标签',
+    'templates.filters.noTagsFound': '未找到标签',
+    'templates.filters.tryDifferentSearch': '尝试不同的搜索词',
+    'templates.filters.noTagsAvailable': '没有可用标签',
+    'templates.filters.loadingTags': '加载标签中...',
+    'templates.filters.noFiltersAvailable': '没有可用筛选器',
+    'templates.list.recentTemplates': '最近使用的模板',
+    'templates.list.allTemplates': '所有模板',
+    'templates.list.templates': '模板',
+    'templates.list.noTemplatesAvailable': '模板可用时将显示在这里。',
+    'templates.list.noAdditionalTemplates': '没有其他可用模板',
+    'templates.list.loadingMore': '加载更多模板中...',
+    'templates.list.failedToLoad': '加载模板失败',
+    'templates.card.recent': '最近',
+    'templates.card.useCase': '使用场景',
+    'templates.card.selectTemplate': '选择模板：{name}',
+    'templates.error.loadFailed': '加载模板失败',
+    'templates.error.loadFailedWithRetry': '加载模板失败。请重试。',
+    'templates.error.selectionFailed': '选择模板失败',
+    'templates.error.gracefulDegradation.title': '模板不可用，但您仍可以创建视频',
+    'templates.error.gracefulDegradation.description': '模板系统暂时不可用，但您可以使用下面的表单继续手动创建视频。',
+    'templates.error.networkUnavailable': '网络连接不可用',
+    'templates.error.serverUnavailable': '模板服务器暂时不可用',
+    'templates.error.offline': '您似乎处于离线状态',
+    'templates.empty.noTemplatesTitle': '没有可用模板',
+    'templates.empty.noTemplatesDescription': '模板可用时将显示在这里。',
+    'templates.empty.noSearchResultsTitle': '未找到模板',
+    'templates.empty.noSearchResultsDescription': '尝试调整搜索词或筛选条件。',
   },
   
   vi: {
@@ -1075,6 +1295,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'error.notFound': 'Không tìm thấy tài nguyên',
     'error.validationError': 'Dữ liệu không hợp lệ',
     'error.tooManyRequests': 'Quá nhiều yêu cầu, vui lòng thử lại sau',
+    'error.serviceUnavailable': 'Dịch vụ tạm thời không khả dụng, vui lòng thử lại sau',
     'error.unknown': 'Đã xảy ra lỗi không xác định',
     'error.requestId': 'ID Yêu cầu (để hỗ trợ)',
     'error.whatToDo': 'Các bước tiếp theo:',
@@ -1104,6 +1325,7 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'loading.app': 'Đang tải...',
     'loading.redirecting': 'Đang chuyển hướng...',
     'loading.validatingSession': 'Đang xác thực phiên...',
+    'loading.checkingUpdates': 'Đang kiểm tra cập nhật...',
     
     // Success messages
     'success.videoCreated': 'Tác vụ video đã được tạo thành công',
@@ -1165,6 +1387,59 @@ const translations: Record<SupportedLanguage, TranslationKeys> = {
     'publish.videoNotReady': 'Video chưa sẵn sàng để xuất bản',
     'publish.videoNotReadyDescription': 'Video này hiện đang ở trạng thái {status} và chưa thể xuất bản. Vui lòng đợi video hoàn thành xử lý.',
     'publish.videoAccessIssue': 'Vấn đề Truy cập Video',
+
+    // Assets upload
+    'assets.upload.title': 'Tải lên Tài sản Media',
+    'assets.upload.description': 'Kéo và thả tệp vào đây hoặc nhấp để chọn',
+    'assets.upload.selectFiles': 'Chọn Tệp',
+    'assets.upload.maxFiles': 'Tối đa {max} tệp',
+    'assets.upload.maxSize': 'Tối đa {max}MB mỗi tệp',
+    'assets.upload.supportedTypes': 'Hỗ trợ hình ảnh (JPG, PNG, GIF, WebP) và video (MP4, WebM, MOV, AVI)',
+    'assets.list.title': 'Tài sản Đã chọn',
+    'assets.error.unsupportedType': 'Loại tệp không được hỗ trợ',
+    'assets.error.fileTooLarge': 'Kích thước tệp vượt quá giới hạn {max}MB',
+    'assets.error.tooManyFiles': 'Không thể tải lên hơn {max} tệp',
+    'assets.error.uploadFailed': 'Tải lên thất bại',
+    'assets.success.uploaded': 'Tài sản đã được tải lên thành công',
+    'assets.status.pending': 'Đang chờ',
+    'assets.status.uploading': 'Đang tải lên',
+    'assets.status.completed': 'Hoàn thành',
+    'assets.status.failed': 'Thất bại',
+
+    // Templates
+    'templates.search.placeholder': 'Tìm kiếm mẫu theo tên hoặc mô tả...',
+    'templates.search.clear': 'Xóa tìm kiếm',
+    'templates.search.searching': 'Đang tìm kiếm...',
+    'templates.filters.title': 'Lọc theo Thẻ',
+    'templates.filters.searchPlaceholder': 'Tìm kiếm thẻ...',
+    'templates.filters.availableTags': 'Thẻ Có Sẵn',
+    'templates.filters.noTagsFound': 'Không tìm thấy thẻ',
+    'templates.filters.tryDifferentSearch': 'Thử từ khóa tìm kiếm khác',
+    'templates.filters.noTagsAvailable': 'Không có thẻ nào',
+    'templates.filters.loadingTags': 'Đang tải thẻ...',
+    'templates.filters.noFiltersAvailable': 'Không có bộ lọc nào',
+    'templates.list.recentTemplates': 'Mẫu Đã Sử Dụng Gần Đây',
+    'templates.list.allTemplates': 'Tất Cả Mẫu',
+    'templates.list.templates': 'Mẫu',
+    'templates.list.noTemplatesAvailable': 'Mẫu sẽ xuất hiện ở đây khi có sẵn.',
+    'templates.list.noAdditionalTemplates': 'Không có mẫu bổ sung nào',
+    'templates.list.loadingMore': 'Đang tải thêm mẫu...',
+    'templates.list.failedToLoad': 'Không thể tải mẫu',
+    'templates.card.recent': 'Gần đây',
+    'templates.card.useCase': 'Trường hợp sử dụng',
+    'templates.card.selectTemplate': 'Chọn mẫu: {name}',
+    'templates.error.loadFailed': 'Không thể tải mẫu',
+    'templates.error.loadFailedWithRetry': 'Không thể tải mẫu. Vui lòng thử lại.',
+    'templates.error.selectionFailed': 'Không thể chọn mẫu',
+    'templates.error.gracefulDegradation.title': 'Mẫu không khả dụng, nhưng bạn vẫn có thể tạo video',
+    'templates.error.gracefulDegradation.description': 'Hệ thống mẫu tạm thời không khả dụng, nhưng bạn có thể tiếp tục tạo video thủ công bằng biểu mẫu bên dưới.',
+    'templates.error.networkUnavailable': 'Kết nối mạng không khả dụng',
+    'templates.error.serverUnavailable': 'Máy chủ mẫu tạm thời không khả dụng',
+    'templates.error.offline': 'Bạn có vẻ đang ngoại tuyến',
+    'templates.empty.noTemplatesTitle': 'Không có mẫu nào',
+    'templates.empty.noTemplatesDescription': 'Mẫu sẽ xuất hiện ở đây khi có sẵn.',
+    'templates.empty.noSearchResultsTitle': 'Không tìm thấy mẫu',
+    'templates.empty.noSearchResultsDescription': 'Thử điều chỉnh từ khóa tìm kiếm hoặc bộ lọc.',
   },
 };
 

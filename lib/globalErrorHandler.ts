@@ -55,6 +55,8 @@ class GlobalErrorHandler {
         message = t('error.validationError');
       } else if (status === 429) {
         message = t('error.tooManyRequests');
+      } else if (status === 503) {
+        message = t('error.serviceUnavailable');
       } else if (status >= 500) {
         message = t('error.serverError');
       } else if (error?.message) {

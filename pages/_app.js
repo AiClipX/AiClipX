@@ -17,11 +17,15 @@ import { CapabilityGuard } from "../components/common/CapabilityGuard";
 import { initializeCapabilities } from "../lib/capabilities";
 import { logEnvironmentInfo } from "../lib/envValidation";
 import extensionPortHandler from "../lib/extensionPortHandler";
+import serviceWorkerErrorHandler from "../lib/serviceWorkerErrorHandler";
 import CustomHead from "../components/common/CustomHead";
 
 // Log environment info in development
 if (typeof window !== "undefined") {
   logEnvironmentInfo();
+  
+  // Initialize service worker error handler
+  serviceWorkerErrorHandler;
   
   // Suppress extension-related errors in development
   const originalError = console.error;
@@ -251,7 +255,46 @@ function InnerApp({ Component, pageProps }) {
 }
 
 function MyApp({ Component, pageProps }) {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        // Global query defaults
+        staleTime: 5 * 60 * 1000, // 5 minutes
+        gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
+        retry: (failureCount, error) => {
+          // Don't retry on auth errors (401, 403)
+          if (error?.response?.status === 401 || error?.response?.status === 403) {
+            return false;
+          }
+          // Don't retry on client errors (4xx) except for 408 (timeout) and 429 (rate limit)
+          if (error?.response?.status >= 400 && 
+              error?.response?.status < 500 && 
+              error?.response?.status !== 408 && 
+              error?.response?.status !== 429) {
+            return false;
+          }
+          // Retry up to 3 times for network errors and server errors
+          return failureCount < 3;
+        },
+        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
+        refetchOnWindowFocus: false, // Don't refetch on window focus by default
+        refetchOnReconnect: true, // Refetch when network reconnects
+        refetchOnMount: true, // Refetch on component mount
+      },
+      mutations: {
+        // Global mutation defaults
+        retry: (failureCount, error) => {
+          // Don't retry mutations on client errors
+          if (error?.response?.status >= 400 && error?.response?.status < 500) {
+            return false;
+          }
+          // Retry up to 2 times for network/server errors
+          return failureCount < 2;
+        },
+        retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
+      },
+    },
+  }));
 
   return (
     <ErrorBoundary>

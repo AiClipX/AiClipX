@@ -115,6 +115,7 @@ export async function createVideoTask(payload: {
   prompt: string;
   engine: string;
   params?: any;
+  assetIds?: string[];
 }, options?: {
   idempotencyKey?: string;
 }): Promise<Video> {

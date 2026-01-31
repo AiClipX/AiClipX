@@ -8,6 +8,10 @@ import { useLanguage } from "../../../../contexts/LanguageContext";
 import { useCapabilityCheck } from "../../../common/CapabilityGuard";
 import { EngineDisabledBanner } from "../../../common/CapabilityBanner";
 import { handleError } from "../../../../lib/globalErrorHandler";
+import { AssetUpload, AssetFile } from "../../assets/AssetUpload";
+import { TemplateSelector } from "../../templates/components/TemplateSelector";
+import { Template } from "../../templates/types/templateTypes";
+import { AutofillResult } from "../../templates/utils/templateAutofill";
 
 // Generate UUID v4
 const generateUUID = (): string => {
@@ -63,6 +67,11 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
   const [prompt, setPrompt] = useState("");
   const [engine, setEngine] = useState("mock");
   const [paramsJson, setParamsJson] = useState('{\n  "durationSec": 5,\n  "ratio": "16:9"\n}');
+  const [assets, setAssets] = useState<AssetFile[]>([]);
+
+  // Template section state
+  const [showTemplates, setShowTemplates] = useState(true);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
 
   // Validation state
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
@@ -81,6 +90,9 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
       setPrompt("");
       setEngine("mock");
       setParamsJson('{\n  "durationSec": 5,\n  "ratio": "16:9"\n}');
+      setAssets([]);
+      setShowTemplates(true);
+      setSelectedTemplate(null);
       setValidationErrors({});
       setHasAttemptedSubmit(false);
       setShowDebug(false);
@@ -187,6 +199,27 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
     }, 300);
   };
 
+  // Handle template selection and autofill
+  const handleTemplateSelect = (autofillResult: AutofillResult, template: Template) => {
+    // Autofill form fields with template data
+    setTitle(autofillResult.title);
+    setPrompt(autofillResult.prompt);
+    
+    // Autofill params if provided
+    if (autofillResult.params) {
+      setParamsJson(JSON.stringify(autofillResult.params, null, 2));
+    }
+    
+    // Store selected template for reference
+    setSelectedTemplate(template);
+    
+    // Clear any validation errors since we're using template data
+    setValidationErrors({});
+    
+    // Show success feedback
+    showToast(t('templates.card.selectTemplate', { name: template.name }), "success", 2000);
+  };
+
   // Retry with same idempotency key
   const handleRetry = () => {
     if (!currentIdempotencyKeyRef.current) {
@@ -263,6 +296,9 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
       prompt: prompt.trim(),
       engine,
       params,
+      assetIds: assets
+        .filter(asset => asset.uploadStatus === 'completed' && asset.assetId)
+        .map(asset => asset.assetId!)
     };
 
     const idempotencyKeyShort = `${idempotencyKey.substring(0, 8)}...${idempotencyKey.substring(idempotencyKey.length - 8)}`;
@@ -290,6 +326,9 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
         setPrompt("");
         setEngine("mock");
         setParamsJson('{\n  "durationSec": 5,\n  "ratio": "16:9"\n}');
+        setAssets([]);
+        setShowTemplates(true);
+        setSelectedTemplate(null);
         setValidationErrors({});
         setHasAttemptedSubmit(false);
         currentIdempotencyKeyRef.current = null;
@@ -361,6 +400,36 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
           {!canCreateVideo && (
             <EngineDisabledBanner />
           )}
+
+          {/* Template Selector Section */}
+          <div className="border border-neutral-700 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setShowTemplates(!showTemplates)}
+              className="w-full px-4 py-3 bg-neutral-800 hover:bg-neutral-700 flex items-center justify-between text-sm font-medium transition-colors"
+              type="button"
+            >
+              <span className="flex items-center gap-2">
+                📋 {t('templates.list.templates')}
+                {selectedTemplate && (
+                  <span className="px-2 py-1 bg-blue-900 text-blue-300 rounded text-xs">
+                    {selectedTemplate.name}
+                  </span>
+                )}
+              </span>
+              <span>{showTemplates ? "▼" : "▶"}</span>
+            </button>
+            
+            {showTemplates && (
+              <div className="border-t border-neutral-700">
+                <TemplateSelector
+                  onTemplateSelect={handleTemplateSelect}
+                  disabled={isPending || isSubmittingRef.current}
+                  compact={true}
+                  className="p-4"
+                />
+              </div>
+            )}
+          </div>
 
           {/* Title */}
           <div>
@@ -444,6 +513,19 @@ export function CreateVideoModal({ open, onClose, onCreated }: Props) {
                 <EngineDisabledBanner />
               </div>
             )}
+          </div>
+
+          {/* Assets Upload */}
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              {t('assets.upload.title')} <span className="text-neutral-400">- {t('create.form.paramsOptional')}</span>
+            </label>
+            <AssetUpload
+              onAssetsChange={setAssets}
+              maxFiles={3}
+              maxFileSize={25}
+              disabled={isPending || isSubmittingRef.current}
+            />
           </div>
 
           {/* Params JSON */}

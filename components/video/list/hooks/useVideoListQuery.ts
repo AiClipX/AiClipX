@@ -11,7 +11,7 @@ import { useAuth } from "../../../../contexts/AuthContext";
 ===================== */
 const LIMIT = 12;
 const SEARCH_DEBOUNCE_MS = 800;
-const POLL_INTERVAL_MS = 4000; // 4 seconds - sensible interval
+const POLL_INTERVAL_MS = 4000; // 4 seconds - back to original
 const INITIAL_LOAD_TIMEOUT_MS = 30000; // 30 seconds
 const RETRY_INTERVAL_MS = 10000; // 10 seconds for background retry
 
@@ -26,6 +26,7 @@ export function useVideoListQuery() {
   const [lastUpdated, setLastUpdated] = useState<number>(0);
   const [timeoutError, setTimeoutError] = useState(false);
   const [backgroundRetrying, setBackgroundRetrying] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   
   const timeoutTimerRef = useRef<NodeJS.Timeout | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -107,6 +108,7 @@ export function useVideoListQuery() {
         setTimeoutError(false);
         setBackgroundRetrying(false);
         setLastUpdated(Date.now());
+        setIsInitialLoad(false); // Mark initial load as complete
 
         return {
           videos: result.data.slice(0, LIMIT),
@@ -146,7 +148,9 @@ export function useVideoListQuery() {
   // Extract data from query result
   const videos = queryData?.videos || [];
   const hasNext = queryData?.hasNext || false;
-  const loading = isLoading || isFetching;
+  
+  // Only show loading for initial load or when user performs actions (not for background polling)
+  const showLoading = (isLoading || isFetching) && (isInitialLoad || videos.length === 0);
 
   /* =====================
      PREPEND VIDEO MỚI
@@ -251,12 +255,12 @@ export function useVideoListQuery() {
      NAVIGATION
   ===================== */
   const goNext = () => {
-    if (!hasNext || loading) return;
+    if (!hasNext || showLoading) return;
     setCurrentPage(currentPage + 1);
   };
 
   const goPrev = () => {
-    if (currentPage <= 1 || loading) return;
+    if (currentPage <= 1 || showLoading) return;
     setCurrentPage(currentPage - 1);
   };
 
@@ -267,6 +271,7 @@ export function useVideoListQuery() {
     // Clear error states
     setTimeoutError(false);
     setBackgroundRetrying(false);
+    setIsInitialLoad(true); // Mark as initial load to show loading
     
     // Clear timers
     if (timeoutTimerRef.current) {
@@ -320,11 +325,12 @@ export function useVideoListQuery() {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
+    setIsInitialLoad(true); // Show loading when filters change
   }, [status, debouncedSearch, sort]);
 
   return {
     videos,
-    loading,
+    loading: showLoading,
     timeoutError,
     backgroundRetrying,
     currentPage,

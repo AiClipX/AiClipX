@@ -268,7 +268,7 @@ export function VideoListContainer() {
 
         {stableEmptyState === 'hasdata' && (
           <>
-            <VideoList videos={videos} removeVideo={removeVideo} loading={loading} />
+            <VideoList videos={videos} removeVideo={removeVideo} loading={false} />
 
             {/* Pagination */}
             <div className="flex justify-center items-center mt-8 gap-4">
