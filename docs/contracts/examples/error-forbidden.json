@@ -1,0 +1,8 @@
+{
+  "code": "FORBIDDEN",
+  "message": "You do not have permission to access this task",
+  "requestId": "req_abc12345",
+  "details": {
+    "taskId": "vt_xyz78901"
+  }
+}

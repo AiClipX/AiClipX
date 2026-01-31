@@ -1,0 +1,6 @@
+{
+  "code": "RATE_LIMIT_EXCEEDED",
+  "message": "Too many requests. Rate limit: 10 per 1 minute",
+  "requestId": "req_abc12345",
+  "details": {}
+}

@@ -1,0 +1,11 @@
+{
+  "code": "QUOTA_EXCEEDED",
+  "message": "Daily task limit reached (50/50)",
+  "requestId": "req_abc12345",
+  "details": {
+    "quotaName": "daily_tasks",
+    "current": 50,
+    "limit": 50,
+    "resetsAt": "2026-02-01T00:00:00Z"
+  }
+}

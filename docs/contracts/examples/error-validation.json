@@ -1,0 +1,14 @@
+{
+  "code": "VALIDATION_ERROR",
+  "message": "body.title: Field required",
+  "requestId": "req_abc12345",
+  "details": {
+    "errors": [
+      {
+        "loc": ["body", "title"],
+        "msg": "Field required",
+        "type": "missing"
+      }
+    ]
+  }
+}
