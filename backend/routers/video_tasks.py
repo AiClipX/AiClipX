@@ -20,7 +20,7 @@ from models.video_task import (
 )
 from services.auth import AuthUser, get_current_user
 from services.supabase_client import get_user_client, get_service_client
-from services.idempotency import check_idempotency, store_idempotency
+from services.idempotency import try_acquire_idempotency_lock, finalize_idempotency
 from services.video_task_service import (
     decode_cursor,
     simulate_task_processing,
@@ -32,6 +32,13 @@ from services.capabilities import capability_service
 from services.webhook import webhook_service
 from services.error_response import error_response
 from services.audit import audit_service
+from services.quota import (
+    check_daily_quota,
+    quota_exceeded_response,
+    QUOTA_NAME_DAILY_TASKS,
+    QUOTA_NAME_ACTIVE_TASKS,
+)
+from services.metrics import emit_task_created, emit_quota_exceeded
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
@@ -363,18 +370,66 @@ async def create_video_task(
         f"title=\"{title_log}\" prompt=\"{prompt_log}\" engine={request_body.engine.value}"
     )
 
-    # BE-STG13-008: Check concurrency limit before creating task
+    # BE-AUTH-001: Use user_client for RLS enforcement
+    user_client = get_user_client(user.jwt_token)
+
+    # BE-STG13-016: Atomic idempotency lock (prevents race conditions)
+    # Try to acquire lock FIRST, then create task if acquired
+    idemp_acquired = False
+    if idempotency_key:
+        payload = {
+            "title": request_body.title,
+            "prompt": request_body.prompt,
+            "engine": request_body.engine.value,
+        }
+        acquire_result = try_acquire_idempotency_lock(user.id, idempotency_key, payload)
+
+        # Payload mismatch → 409 Conflict
+        if acquire_result.conflict:
+            logger.warning(
+                f"[{request_id}] Idempotency CONFLICT: key {idempotency_key[:8]}... "
+                "used with different payload - returning 409"
+            )
+            return error_response(
+                status_code=409,
+                code="IDEMPOTENCY_KEY_CONFLICT",
+                message="Idempotency-Key already used with different payload",
+                request_id=request_id,
+                details={"idempotencyKey": idempotency_key[:16] + "..."},
+            )
+
+        # Existing task found → return it (skip concurrency check)
+        if acquire_result.existing_task_id:
+            logger.info(f"[{request_id}] Idempotency HIT: returning existing task {acquire_result.existing_task_id}")
+            task = video_task_service.get_task_by_id(user_client, acquire_result.existing_task_id, user_id=user.id)
+            if task:
+                task.debug = DebugInfo(requestId=request_id)
+                return task
+
+        # Lock acquired → proceed to create task
+        idemp_acquired = acquire_result.acquired
+
+    # BE-STG13-018 + BE-STG13-021: Check daily quota before creating task
+    quota_result = check_daily_quota(user.id)
+    if quota_result.exceeded:
+        emit_quota_exceeded(user.id, quota_result.current, quota_result.limit)
+        return quota_exceeded_response(
+            quota_name=QUOTA_NAME_DAILY_TASKS,
+            current=quota_result.current,
+            limit=quota_result.limit,
+            request_id=request_id,
+            reset_at=quota_result.resets_at,
+        )
+
+    # BE-STG13-008 + BE-STG13-021: Check concurrency limit before creating task
     active_count = video_task_service.count_active_tasks(user.id)
     if active_count >= MAX_CONCURRENT_TASKS_PER_USER:
-        logger.warning(
-            f"[{request_id}] CONCURRENCY_LIMIT: user={user.id[:8]}... has {active_count} active tasks"
-        )
-        return error_response(
-            status_code=429,
-            code="CONCURRENCY_LIMIT_EXCEEDED",
-            message=f"Maximum {MAX_CONCURRENT_TASKS_PER_USER} concurrent tasks allowed. Wait for existing tasks to complete.",
+        return quota_exceeded_response(
+            quota_name=QUOTA_NAME_ACTIVE_TASKS,
+            current=active_count,
+            limit=MAX_CONCURRENT_TASKS_PER_USER,
             request_id=request_id,
-            details={"activeCount": active_count, "limit": MAX_CONCURRENT_TASKS_PER_USER},
+            reset_at=None,  # No auto-reset for active tasks
         )
 
     # BE-STG13-009: Check if runway engine is available
@@ -410,40 +465,6 @@ async def create_video_task(
             details={"field": "sourceImageUrl", "engine": "runway"},
         )
 
-    # BE-AUTH-001: Use user_client for RLS enforcement
-    user_client = get_user_client(user.jwt_token)
-
-    # Check idempotency if key provided (BE-STG12-004: persistent via Supabase)
-    if idempotency_key:
-        payload = {
-            "title": request_body.title,
-            "prompt": request_body.prompt,
-            "engine": request_body.engine.value,
-        }
-        idemp_result = check_idempotency(user.id, idempotency_key, payload)
-
-        # Payload mismatch → 409 Conflict
-        if idemp_result.mismatch:
-            logger.warning(
-                f"[{request_id}] Idempotency CONFLICT: key {idempotency_key[:8]}... "
-                "used with different payload - returning 409"
-            )
-            return error_response(
-                status_code=409,
-                code="IDEMPOTENCY_KEY_CONFLICT",
-                message="Idempotency-Key already used with different payload",
-                request_id=request_id,
-                details={"idempotencyKey": idempotency_key[:16] + "..."},
-            )
-
-        # Cache hit with matching payload → return existing task
-        if idemp_result.hit and idemp_result.task_id:
-            logger.info(f"[{request_id}] Idempotency hit: returning existing task {idemp_result.task_id}")
-            task = video_task_service.get_task_by_id(user_client, idemp_result.task_id, user_id=user.id)
-            if task:
-                task.debug = DebugInfo(requestId=request_id)
-                return task
-
     # Prepare params dict
     params_dict = None
     if request_body.params:
@@ -460,6 +481,9 @@ async def create_video_task(
         params=params_dict,
     )
     logger.info(f"[{request_id}] Created task {task.id} with status={task.status.value} for user={user.id[:8]}...")
+
+    # BE-STG13-018: Emit metrics for task creation
+    emit_task_created(user.id, request_body.engine.value, request_id, task.id)
 
     # BE-STG13-012: Emit audit log for task creation
     audit_service.emit(
@@ -486,14 +510,9 @@ async def create_video_task(
         )
     )
 
-    # Store idempotency key if provided (BE-STG12-004: persistent via Supabase)
-    if idempotency_key:
-        payload = {
-            "title": request_body.title,
-            "prompt": request_body.prompt,
-            "engine": request_body.engine.value,
-        }
-        store_idempotency(user.id, idempotency_key, payload, task.id)
+    # BE-STG13-016: Finalize idempotency lock with created task_id
+    if idempotency_key and idemp_acquired:
+        finalize_idempotency(user.id, idempotency_key, task.id)
 
     # Schedule background processing based on engine
     if request_body.engine == VideoEngine.mock:

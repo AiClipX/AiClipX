@@ -26,7 +26,7 @@ from services.ratelimit import limiter
 
 from database import close_db, init_db, check_db_health
 from generate_video import generate_video
-from routers import video_tasks, tts, auth, debug, capabilities, audit, assets, templates, events
+from routers import video_tasks, tts, auth, debug, capabilities, audit, assets, templates, events, admin
 from services.supabase_client import init_supabase, is_supabase_configured
 from services.runway import close_http_client
 from services.templates import init_templates
@@ -236,6 +236,7 @@ app.include_router(audit.router, prefix="/api")  # BE-STG13-012
 app.include_router(assets.router, prefix="/api")  # BE-STG13-013
 app.include_router(templates.router, prefix="/api")  # BE-STG13-014
 app.include_router(events.router, prefix="/api")  # BE-STG13-015
+app.include_router(admin.router, prefix="/api")  # BE-STG13-018
 
 
 # Standard error response model
@@ -374,6 +375,8 @@ class GenReq(BaseModel):
 def root():
     """Root endpoint - responds to both GET and HEAD (BE-ENGINE-002: Render health check)."""
     return {"message": f"AiClipX v{VERSION} backend OK"}
+
+
 
 @app.post("/generate", include_in_schema=False, deprecated=True)
 def generate_endpoint(req: GenReq):

@@ -26,6 +26,10 @@ from services.runway import (
     RunwayAPIError,
     RunwayConfigError,
 )
+from services.resilience import (
+    EngineErrorCode,
+    get_error_message,
+)
 from services.supabase_storage import (
     upload_video,
     SupabaseUploadError,
@@ -34,6 +38,7 @@ from services.supabase_storage import (
 from services.webhook import webhook_service
 from services.audit import audit_service
 from services.sse import sse_service
+from services.metrics import emit_task_completed, emit_task_failed, emit_task_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -464,6 +469,25 @@ class VideoTaskService:
             f"[{request_id}] STATUS_CHANGE task={task_id} "
             f"{old_status.value}→{status.value} latency={latency_ms}ms"
         )
+
+        # BE-STG13-018: Emit metrics for status changes
+        user_id = current_task.userId if current_task else None
+        if status == VideoTaskStatus.completed and user_id:
+            emit_task_completed(task_id, user_id, latency_ms)
+        elif status == VideoTaskStatus.failed and user_id:
+            error_code = "UNKNOWN"
+            if error_message:
+                if "timeout" in error_message.lower():
+                    error_code = "TIMEOUT"
+                elif "unavailable" in error_message.lower():
+                    error_code = "ENGINE_UNAVAILABLE"
+                elif "invalid" in error_message.lower():
+                    error_code = "INVALID_PROMPT"
+                else:
+                    error_code = "PROCESSING_ERROR"
+            emit_task_failed(task_id, user_id, error_code)
+        elif status == VideoTaskStatus.cancelled and user_id:
+            emit_task_cancelled(task_id, user_id)
 
         # BE-STG13-012: Emit audit log for status changes (processing/completed/failed)
         if status in [VideoTaskStatus.processing, VideoTaskStatus.completed, VideoTaskStatus.failed]:
@@ -925,9 +949,16 @@ async def process_runway_task(
 
     except (RunwayAPIError, RunwayConfigError) as e:
         logger.error(f"[{request_id}] Runway error for task {task_id}: {e}")
-        # Sanitize: don't expose internal API details
-        error_msg = "Video generation service error. Please try again later."
-        error_code = "RUNWAY_ERROR"
+        # BE-STG13-017: Use standardized error codes
+        if isinstance(e, RunwayAPIError) and e.error_code:
+            error_code = e.error_code.value
+            error_msg = get_error_message(e.error_code)
+        elif isinstance(e, RunwayConfigError):
+            error_code = EngineErrorCode.ENGINE_AUTH_ERROR.value
+            error_msg = get_error_message(EngineErrorCode.ENGINE_AUTH_ERROR)
+        else:
+            error_code = EngineErrorCode.ENGINE_UNAVAILABLE.value
+            error_msg = get_error_message(EngineErrorCode.ENGINE_UNAVAILABLE)
         try:
             failed_task = service.update_task_status(
                 task_id,
